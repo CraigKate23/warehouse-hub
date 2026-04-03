@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Warehouse Hub – Sign In</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  /* Subtle grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: linear-gradient(rgba(99,102,241,.06) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(99,102,241,.06) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  .login-wrap {
+    width: 100%;
+    max-width: 420px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Brand */
+  .brand {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  .brand-icon {
+    width: 56px; height: 56px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    border-radius: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: #fff;
+    margin-bottom: 14px;
+    box-shadow: 0 8px 32px rgba(99,102,241,.4);
+  }
+  .brand h1 {
+    font-size: 24px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -.5px;
+  }
+  .brand p {
+    font-size: 13px;
+    color: rgba(255,255,255,.4);
+    margin-top: 4px;
+  }
+
+  /* Card */
+  .card {
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 20px;
+    padding: 32px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 24px 64px rgba(0,0,0,.4);
+  }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    background: rgba(255,255,255,.05);
+    border-radius: 10px;
+    padding: 3px;
+    margin-bottom: 28px;
+    gap: 3px;
+  }
+  .tab {
+    flex: 1;
+    padding: 9px;
+    border: none;
+    border-radius: 8px;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .15s;
+    font-family: inherit;
+    background: transparent;
+    color: rgba(255,255,255,.4);
+  }
+  .tab.active {
+    background: #6366f1;
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(99,102,241,.4);
+  }
+
+  /* Form */
+  .form-group {
+    margin-bottom: 16px;
+  }
+  .form-group label {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: rgba(255,255,255,.5);
+    text-transform: uppercase;
+    letter-spacing: .7px;
+    margin-bottom: 7px;
+  }
+  .form-group input {
+    width: 100%;
+    padding: 12px 14px;
+    background: rgba(255,255,255,.07);
+    border: 1.5px solid rgba(255,255,255,.1);
+    border-radius: 10px;
+    font-size: 14.5px;
+    color: #fff;
+    font-family: inherit;
+    outline: none;
+    transition: border-color .15s, background .15s;
+  }
+  .form-group input::placeholder { color: rgba(255,255,255,.25); }
+  .form-group input:focus {
+    border-color: #6366f1;
+    background: rgba(99,102,241,.08);
+    box-shadow: 0 0 0 3px rgba(99,102,241,.2);
+  }
+
+  .btn-submit {
+    width: 100%;
+    padding: 13px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: inherit;
+    margin-top: 8px;
+    transition: opacity .15s, transform .08s;
+    box-shadow: 0 4px 20px rgba(99,102,241,.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .btn-submit:hover { opacity: .92; }
+  .btn-submit:active { transform: scale(.98); }
+  .btn-submit:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* Message */
+  .msg {
+    padding: 11px 14px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 500;
+    margin-top: 14px;
+    display: none;
+  }
+  .msg.error { background: rgba(239,68,68,.15); color: #fca5a5; border: 1px solid rgba(239,68,68,.3); }
+  .msg.success { background: rgba(16,185,129,.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,.3); }
+  .msg.info { background: rgba(99,102,241,.15); color: #a5b4fc; border: 1px solid rgba(99,102,241,.3); }
+
+  /* Footer note */
+  .footer-note {
+    text-align: center;
+    margin-top: 22px;
+    font-size: 11.5px;
+    color: rgba(255,255,255,.2);
+  }
+  .footer-note a { color: rgba(255,255,255,.35); text-decoration: none; }
+  .footer-note a:hover { color: rgba(255,255,255,.6); }
+
+  /* Reset password */
+  .forgot-link {
+    font-size: 12px;
+    color: rgba(255,255,255,.35);
+    text-align: right;
+    display: block;
+    margin-top: -8px;
+    margin-bottom: 18px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: color .15s;
+  }
+  .forgot-link:hover { color: #a5b4fc; }
+
+  /* Loading spinner */
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div class="login-wrap">
+  <div class="brand">
+    <div class="brand-icon"><i class="fas fa-warehouse"></i></div>
+    <h1>Warehouse Hub</h1>
+    <p>C&amp;C Warehouse Operations</p>
+  </div>
+
+  <div class="card">
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab active" id="tab-signin" onclick="switchTab('signin')">Sign In</button>
+      <button class="tab" id="tab-signup" onclick="switchTab('signup')">Create Account</button>
+    </div>
+
+    <!-- Sign In Form -->
+    <form id="form-signin" onsubmit="handleSignIn(event)">
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" id="signin-email" placeholder="you@candcwarehouse.com" required autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="signin-password" placeholder="Your password" required autocomplete="current-password">
+      </div>
+      <a class="forgot-link" onclick="handleForgotPassword()">Forgot password?</a>
+      <button type="submit" class="btn-submit" id="btn-signin">
+        <span class="spinner" id="spinner-signin"></span>
+        <i class="fas fa-sign-in-alt" id="icon-signin"></i>
+        <span id="label-signin">Sign In</span>
+      </button>
+    </form>
+
+    <!-- Sign Up Form -->
+    <form id="form-signup" onsubmit="handleSignUp(event)" style="display:none">
+      <div class="form-group">
+        <label>Full Name</label>
+        <input type="text" id="signup-name" placeholder="Your name" required autocomplete="name">
+      </div>
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" id="signup-email" placeholder="you@candcwarehouse.com" required autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="signup-password" placeholder="Choose a password (min 6 chars)" required autocomplete="new-password" minlength="6">
+      </div>
+      <button type="submit" class="btn-submit" id="btn-signup">
+        <span class="spinner" id="spinner-signup"></span>
+        <i class="fas fa-user-plus" id="icon-signup"></i>
+        <span id="label-signup">Create Account</span>
+      </button>
+    </form>
+
+    <div class="msg" id="auth-msg"></div>
+  </div>
+
+  <div class="footer-note">
+    &copy; 2026 C&amp;C Warehouse &nbsp;·&nbsp; <a href="mailto:greg@candcwarehouse.com">Contact Admin</a>
+  </div>
+</div>
+
+<script>
+// ── Init Supabase ────────────────────────────────────────────
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// If already logged in, go straight to the app
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) window.location.replace('index.html');
+})();
+
+// ── Tab switching ────────────────────────────────────────────
+function switchTab(tab) {
+  const isSignin = tab === 'signin';
+  document.getElementById('form-signin').style.display  = isSignin ? '' : 'none';
+  document.getElementById('form-signup').style.display  = isSignin ? 'none' : '';
+  document.getElementById('tab-signin').classList.toggle('active', isSignin);
+  document.getElementById('tab-signup').classList.toggle('active', !isSignin);
+  clearMsg();
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+function showMsg(msg, type) {
+  const el = document.getElementById('auth-msg');
+  el.textContent = msg;
+  el.className = 'msg ' + type;
+  el.style.display = 'block';
+}
+function clearMsg() {
+  const el = document.getElementById('auth-msg');
+  el.style.display = 'none';
+}
+function setLoading(form, loading) {
+  const btn = document.getElementById('btn-' + form);
+  const spinner = document.getElementById('spinner-' + form);
+  const icon = document.getElementById('icon-' + form);
+  btn.disabled = loading;
+  spinner.style.display = loading ? 'block' : 'none';
+  icon.style.display = loading ? 'none' : 'inline';
+}
+
+// ── Sign In ──────────────────────────────────────────────────
+async function handleSignIn(e) {
+  e.preventDefault();
+  clearMsg();
+  setLoading('signin', true);
+
+  const email    = document.getElementById('signin-email').value.trim();
+  const password = document.getElementById('signin-password').value;
+
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    showMsg(error.message === 'Invalid login credentials'
+      ? 'Incorrect email or password. Please try again.'
+      : error.message, 'error');
+    setLoading('signin', false);
+  } else {
+    showMsg('Signing you in…', 'success');
+    window.location.replace('index.html');
+  }
+}
+
+// ── Sign Up ──────────────────────────────────────────────────
+async function handleSignUp(e) {
+  e.preventDefault();
+  clearMsg();
+  setLoading('signup', true);
+
+  const name     = document.getElementById('signup-name').value.trim();
+  const email    = document.getElementById('signup-email').value.trim();
+  const password = document.getElementById('signup-password').value;
+
+  const { error } = await sb.auth.signUp({
+    email,
+    password,
+    options: { data: { full_name: name } }
+  });
+
+  if (error) {
+    showMsg(error.message, 'error');
+    setLoading('signup', false);
+  } else {
+    showMsg('Account created! Check your email to confirm, then sign in.', 'success');
+    setLoading('signup', false);
+    // Switch back to sign-in after a moment
+    setTimeout(() => switchTab('signin'), 2000);
+  }
+}
+
+// ── Forgot Password ──────────────────────────────────────────
+async function handleForgotPassword() {
+  const email = document.getElementById('signin-email').value.trim();
+  if (!email) {
+    showMsg('Enter your email address above first.', 'info');
+    document.getElementById('signin-email').focus();
+    return;
+  }
+  clearMsg();
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + '/index.html'
+  });
+  if (error) {
+    showMsg(error.message, 'error');
+  } else {
+    showMsg('Password reset email sent — check your inbox.', 'success');
+  }
+}
+</script>
+</body>
+</html>

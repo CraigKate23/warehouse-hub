@@ -1,0 +1,3574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Warehouse Hub</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<!-- Supabase Auth + DB -->
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="db.js"></script>
+<!-- Zebra BrowserPrint SDK — loaded from jsDelivr CDN (auto-detects HTTPS→9101 / HTTP→9100) -->
+<script src="https://cdn.jsdelivr.net/npm/zebra-browser-print-min@3.0.216/BrowserPrint-3.0.216.min.js"></script>
+<script>
+  // Trigger status update once the SDK is loaded
+  if (window.BrowserPrint) {
+    window._bpLoaded = true;
+    typeof lmUpdateBPStatus === 'function' && lmUpdateBPStatus();
+  }
+</script>
+<style>
+/* ============ PRINT STYLES (Zebra 4x6) ============ */
+@media screen {
+  /* Keep print frame rendered but invisible so JsBarcode can draw on it */
+  #lm-print-frame { position: fixed !important; left: -10000px !important; top: 0 !important; width: 4in !important; height: 6in !important; }
+}
+@media print {
+  body * { visibility: hidden !important; }
+  #lm-print-frame, #lm-print-frame * { visibility: visible !important; }
+  #lm-print-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: 4in !important; height: 6in !important; margin: 0 !important; padding: 0 !important; }
+  @page { size: 4in 6in; margin: 0; }
+}
+
+/* ============ RESET & BASE ============ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #0f172a; display: flex; min-height: 100vh; line-height: 1.5; }
+
+/* ============ SIDEBAR ============ */
+.sidebar { width: 268px; background: #0f172a; color: #fff; display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; transition: transform .3s cubic-bezier(.4,0,.2,1); overflow: hidden; }
+.sidebar-brand { padding: 18px 18px 15px; border-bottom: 1px solid rgba(255,255,255,.06); display: flex; align-items: center; gap: 11px; }
+.sidebar-brand-icon { width: 36px; height: 36px; background: linear-gradient(135deg,#6366f1,#8b5cf6); border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+.sidebar-brand-text h1 { font-size: 15px; font-weight: 700; letter-spacing: -.2px; }
+.sidebar-brand-text p { font-size: 10.5px; color: rgba(255,255,255,.38); margin-top: 1px; }
+.sidebar-nav { flex: 1; overflow-y: auto; padding: 8px 0; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.08) transparent; }
+.nav-category { padding: 14px 16px 4px; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.4px; color: rgba(255,255,255,.26); }
+.nav-item { display: flex; align-items: center; gap: 9px; padding: 8.5px 16px; font-size: 13px; font-weight: 500; color: rgba(255,255,255,.58); cursor: pointer; transition: all .12s; border-left: 2px solid transparent; }
+.nav-item:hover { background: rgba(255,255,255,.05); color: rgba(255,255,255,.88); border-left-color: rgba(255,255,255,.18); }
+.nav-item.active { background: rgba(99,102,241,.16); color: #a5b4fc; border-left-color: #6366f1; font-weight: 600; }
+.nav-item i { width: 15px; text-align: center; font-size: 11.5px; }
+.nav-badge { margin-left: auto; background: #6366f1; color: #fff; font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 10px; display: none; }
+.nav-badge.show { display: block; }
+.sidebar-footer { padding: 10px 16px; border-top: 1px solid rgba(255,255,255,.05); font-size: 10.5px; color: rgba(255,255,255,.22); display: flex; align-items: center; justify-content: space-between; }
+.sidebar-footer .dot { width: 6px; height: 6px; background: #22c55e; border-radius: 50%; display: inline-block; margin-right: 5px; box-shadow: 0 0 6px #22c55e; }
+
+/* ============ HAMBURGER ============ */
+.hamburger { display: none; position: fixed; top: 14px; left: 14px; z-index: 200; background: #0f172a; color: #fff; border: none; border-radius: 8px; padding: 9px 11px; font-size: 17px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+.sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 99; backdrop-filter: blur(2px); }
+
+/* ============ MAIN ============ */
+.main { margin-left: 268px; flex: 1; padding: 32px; min-height: 100vh; }
+.module { display: none; }
+.module.active { display: block; animation: fadeIn .18s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ============ MODULE HEADER ============ */
+.module-header { display: flex; align-items: center; gap: 14px; margin-bottom: 26px; }
+.module-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.module-title { font-size: 26px; font-weight: 800; color: #0f172a; letter-spacing: -.6px; line-height: 1.1; }
+.module-sub { font-size: 13px; color: #64748b; margin-top: 2px; font-weight: 400; }
+
+/* ============ CARDS ============ */
+.card { background: #fff; border-radius: 14px; padding: 22px 24px; box-shadow: 0 1px 3px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04); margin-bottom: 20px; border: 1px solid rgba(0,0,0,.035); }
+.card-title { font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 16px; display: flex; align-items: center; gap: 7px; }
+.card-title i { color: #6366f1; font-size: 13px; }
+
+/* ============ FORMS ============ */
+.form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+.form-group label { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .6px; }
+.form-group input, .form-group textarea, .form-group select { padding: 10px 13px; border: 1.5px solid #e2e8f0; border-radius: 9px; font-size: 14px; font-family: inherit; color: #0f172a; background: #fff; transition: border-color .15s, box-shadow .15s; outline: none; }
+.form-group input:focus, .form-group textarea:focus, .form-group select:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.11); }
+.form-group textarea { resize: vertical; min-height: 80px; }
+
+/* Scan input — warehouse-prominent */
+input.scan-field { font-size: 18px !important; padding: 13px 16px !important; border-radius: 10px !important; border: 2px solid #e2e8f0 !important; font-weight: 600 !important; letter-spacing: .4px; }
+input.scan-field:focus { border-color: #6366f1 !important; box-shadow: 0 0 0 4px rgba(99,102,241,.14) !important; }
+
+/* ============ BUTTONS ============ */
+.btn { padding: 10px 18px; border: none; border-radius: 9px; font-size: 13.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .12s, transform .08s; white-space: nowrap; font-family: inherit; }
+.btn:active { transform: scale(.97); }
+.btn-primary { background: #6366f1; color: #fff; } .btn-primary:hover { background: #4f46e5; }
+.btn-success { background: #10b981; color: #fff; } .btn-success:hover { background: #059669; }
+.btn-danger { background: #ef4444; color: #fff; } .btn-danger:hover { background: #dc2626; }
+.btn-warning { background: #f59e0b; color: #fff; } .btn-warning:hover { background: #d97706; }
+.btn-secondary { background: #64748b; color: #fff; } .btn-secondary:hover { background: #475569; }
+.btn-info { background: #0ea5e9; color: #fff; } .btn-info:hover { background: #0284c7; }
+.btn-ghost { background: transparent; color: #64748b; border: 1.5px solid #e2e8f0; } .btn-ghost:hover { background: #f8fafc; color: #0f172a; }
+.btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 7px; }
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+
+/* ============ TABLES ============ */
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th { background: #f8fafc; padding: 10px 14px; text-align: left; font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: #64748b; border-bottom: 1px solid #e2e8f0; }
+.data-table td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; }
+.data-table tr:hover td { background: #fafbff; }
+.data-table tr:last-child td { border-bottom: none; }
+
+/* ============ DROP ZONE ============ */
+.drop-zone { border: 2px dashed #cbd5e1; border-radius: 12px; padding: 28px 20px; text-align: center; cursor: pointer; transition: all .18s; background: #f8fafc; }
+.drop-zone:hover, .drop-zone.dragover { border-color: #6366f1; background: #eef2ff; }
+.drop-zone.loaded { border-color: #10b981; border-style: solid; background: #f0fdf4; }
+.drop-zone p { color: #64748b; font-size: 13.5px; }
+.drop-zone > i { font-size: 26px; color: #94a3b8; margin-bottom: 8px; display: block; }
+.drop-zone.loaded > i { color: #10b981; }
+.drop-zone input[type="file"] { display: none; }
+
+/* ============ STATUS MESSAGES ============ */
+.status-msg { padding: 10px 14px; border-radius: 9px; font-size: 13px; font-weight: 500; margin: 8px 0; }
+.status-msg.error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.status-msg.success { background: #f0fdf4; color: #059669; border: 1px solid #bbf7d0; }
+.status-msg.info { background: #eef2ff; color: #4f46e5; border: 1px solid #c7d2fe; }
+
+/* ============ TOAST ============ */
+.toast { position: fixed; bottom: 24px; right: 24px; padding: 13px 18px; border-radius: 11px; color: #fff; font-size: 13.5px; font-weight: 600; z-index: 9999; box-shadow: 0 4px 20px rgba(0,0,0,.18); animation: slideUp .25s cubic-bezier(.4,0,.2,1); display: flex; align-items: center; gap: 8px; }
+@keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* ============ PICKER STYLES ============ */
+.picker-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.status-light { width: 80px; height: 80px; border-radius: 50%; margin: 16px auto; background: #e2e8f0; border: 2px solid #cbd5e1; display: flex; justify-content: center; align-items: center; font-size: 22px; font-weight: 700; color: #2d3748; transition: all .3s; }
+.status-light.pulse { animation: statusPulse 1.5s infinite; }
+@keyframes statusPulse { 0% { box-shadow: 0 0 0 0 rgba(99,102,241,.7); } 70% { box-shadow: 0 0 0 12px rgba(99,102,241,0); } 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); } }
+.parts-list { max-height: 400px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 10px; }
+.parts-list ul { list-style: none; }
+.parts-list li { padding: 9px 14px; border-bottom: 1px solid #f1f5f9; font-size: 13px; color: #334155; }
+.parts-list li:last-child { border-bottom: none; }
+
+/* ============ PROGRESS ============ */
+.progress-bar-wrap { background: #e2e8f0; border-radius: 100px; height: 10px; overflow: hidden; margin: 8px 0; }
+.progress-bar-fill { background: linear-gradient(90deg,#6366f1,#8b5cf6); height: 100%; border-radius: 100px; transition: width .5s cubic-bezier(.4,0,.2,1); min-width: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; }
+
+/* ============ PICKER PROGRESS RING ============ */
+.picker-progress-wrap { display: flex; align-items: center; gap: 16px; margin: 12px 0 4px; }
+.picker-ring-container { position: relative; width: 80px; height: 80px; flex-shrink: 0; }
+.picker-ring-container svg { transform: rotate(-90deg); }
+.picker-ring-bg { fill: none; stroke: #e2e8f0; stroke-width: 6; }
+.picker-ring-bar { fill: none; stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset .6s cubic-bezier(.4,0,.2,1), stroke .3s; }
+.picker-ring-pct { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 800; letter-spacing: -0.5px; color: #334155; }
+.picker-progress-stats { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: #64748b; }
+.picker-progress-stats strong { color: #334155; font-weight: 700; }
+
+/* ============ STATS ============ */
+.stats-grid { display: flex; gap: 14px; flex-wrap: wrap; margin: 16px 0; }
+.stat-card { background: #fff; border-radius: 12px; padding: 14px 18px; flex: 1; min-width: 110px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.04); border: 1px solid rgba(0,0,0,.04); }
+.stat-num { font-size: 2rem; font-weight: 800; color: #6366f1; letter-spacing: -1px; }
+.stat-label { font-size: 10.5px; color: #94a3b8; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; margin-top: 2px; }
+.file-name-display { margin-top: 6px; font-size: 12px; font-weight: 600; color: #10b981; }
+.upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.counter { font-size: 14px; font-weight: 600; color: #64748b; padding: 6px 0; }
+
+/* ============ TOGGLE SWITCH ============ */
+.toggle-wrap { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.toggle-wrap input[type="checkbox"] { display: none; }
+.toggle-track { width: 40px; height: 22px; background: #cbd5e1; border-radius: 100px; position: relative; transition: background .2s; flex-shrink: 0; }
+.toggle-track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+input[type="checkbox"]:checked + .toggle-track { background: #6366f1; }
+input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18px); }
+.toggle-label { font-size: 13.5px; font-weight: 600; color: #0f172a; }
+
+/* ============ CONFIRM MODAL ============ */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+.modal-overlay.open { display: flex; }
+.modal { background: #fff; border-radius: 16px; padding: 28px; max-width: 400px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,.2); animation: modalIn .18s cubic-bezier(.4,0,.2,1); }
+@keyframes modalIn { from { transform: scale(.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.modal-icon { font-size: 32px; margin-bottom: 12px; }
+.modal-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+.modal-body { font-size: 14px; color: #64748b; margin-bottom: 22px; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+/* ============ DASHBOARD ============ */
+.dash-hero { display: flex; justify-content: space-between; align-items: flex-start; background: linear-gradient(140deg,#0f172a 0%,#1e1b4b 60%,#1e293b 100%); border-radius: 18px; padding: 30px 34px; margin-bottom: 22px; color: #fff; position: relative; overflow: hidden; }
+.dash-hero::before { content: ''; position: absolute; top: -80px; right: -80px; width: 280px; height: 280px; background: radial-gradient(circle, rgba(99,102,241,.25) 0%, transparent 70%); }
+.dash-hero::after { content: ''; position: absolute; bottom: -50px; left: 25%; width: 320px; height: 160px; background: radial-gradient(ellipse, rgba(139,92,246,.12) 0%, transparent 70%); }
+.dash-greeting { font-size: 30px; font-weight: 900; letter-spacing: -.7px; position: relative; z-index: 1; }
+.dash-sub { font-size: 13.5px; color: rgba(255,255,255,.5); margin-top: 5px; position: relative; z-index: 1; }
+.dash-clock-wrap { text-align: right; position: relative; z-index: 1; }
+.dash-clock { font-size: 44px; font-weight: 900; letter-spacing: -2px; font-variant-numeric: tabular-nums; color: rgba(255,255,255,.92); line-height: 1; }
+.dash-date { font-size: 12px; color: rgba(255,255,255,.42); margin-top: 4px; text-align: right; }
+
+.dash-stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 22px; }
+.stat-tile { background: #fff; border-radius: 14px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.04); border: 1px solid rgba(0,0,0,.04); display: flex; flex-direction: column; gap: 10px; cursor: pointer; transition: transform .15s, box-shadow .15s; }
+.stat-tile:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,0,0,.09); }
+.stat-tile-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.stat-tile-num { font-size: 2.4rem; font-weight: 900; letter-spacing: -2px; line-height: 1; }
+.stat-tile-label { font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .4px; }
+
+.dash-bottom { display: flex; gap: 20px; align-items: flex-start; }
+.dash-launch-card { flex: 1.6; }
+.dash-feed-card { flex: 1; }
+.quick-launch { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+.tool-tile { border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 15px 13px; cursor: pointer; transition: all .15s; }
+.tool-tile:hover { border-color: #6366f1; background: #eef2ff; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,.12); }
+.tool-tile-icon { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; margin-bottom: 9px; }
+.tool-tile-name { font-size: 12.5px; font-weight: 700; color: #0f172a; }
+.tool-tile-desc { font-size: 11px; color: #94a3b8; margin-top: 2px; line-height: 1.3; }
+
+.activity-feed { max-height: 400px; overflow-y: auto; }
+.activity-empty { font-size: 13px; color: #94a3b8; text-align: center; padding: 40px 0; }
+.activity-item { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f1f5f9; }
+.activity-item:last-child { border-bottom: none; }
+.activity-dot { width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.activity-msg { font-size: 13px; font-weight: 500; color: #0f172a; }
+.activity-time { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+
+/* ============ PROGRESS TRACKER CARDS ============ */
+.pt-summary-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.pt-summary-seg { flex: 1; min-width: 100px; background: #f8fafc; border-radius: 10px; padding: 12px 16px; border: 1px solid #e2e8f0; text-align: center; }
+.pt-summary-seg .num { font-size: 1.6rem; font-weight: 900; letter-spacing: -1px; line-height: 1; }
+.pt-summary-seg .lbl { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: #94a3b8; margin-top: 3px; }
+.pt-order-card { background: #fff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 16px 18px; cursor: pointer; transition: all .15s; border-left: 4px solid #e2e8f0; }
+.pt-order-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.08); border-left-color: #6366f1; }
+.pt-order-card .order-id { font-size: 15px; font-weight: 800; color: #0f172a; letter-spacing: -.3px; }
+.pt-order-card .order-pct { font-size: 24px; font-weight: 900; letter-spacing: -1px; line-height: 1; }
+.pt-order-card .order-meta { font-size: 11.5px; color: #94a3b8; margin-top: 8px; display: flex; gap: 12px; }
+.pt-order-card .order-meta span { display: flex; align-items: center; gap: 4px; }
+.pt-detail-stat { background: #f8fafc; border-radius: 10px; padding: 12px 16px; flex: 1; min-width: 90px; text-align: center; }
+.pt-detail-stat .v { font-size: 1.8rem; font-weight: 900; letter-spacing: -1px; line-height: 1; }
+.pt-detail-stat .l { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: #94a3b8; margin-top: 3px; }
+
+/* ============ RESPONSIVE ============ */
+@media (max-width: 1200px) { .dash-stats { grid-template-columns: repeat(2,1fr); } }
+@media (max-width: 900px) { .dash-bottom { flex-direction: column; } .quick-launch { grid-template-columns: repeat(2,1fr); } }
+@media (max-width: 800px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-overlay.open { display: block; }
+  .hamburger { display: block; }
+  .main { margin-left: 0; padding: 20px; padding-top: 60px; }
+  .picker-layout { grid-template-columns: 1fr; }
+  .upload-grid { grid-template-columns: 1fr; }
+  .dash-stats { grid-template-columns: 1fr 1fr; }
+  .dash-clock { font-size: 28px; }
+  .dash-greeting { font-size: 20px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Hamburger for mobile -->
+<button class="hamburger" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+<div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+<!-- Confirm Modal -->
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal">
+    <div class="modal-icon" id="confirm-icon">⚠️</div>
+    <div class="modal-title" id="confirm-title">Are you sure?</div>
+    <div class="modal-body" id="confirm-body">This action cannot be undone.</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="modalResolve(false)">Cancel</button>
+      <button class="btn btn-danger" id="confirm-ok-btn" onclick="modalResolve(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sidebar -->
+<nav class="sidebar">
+  <div class="sidebar-brand">
+    <div class="sidebar-brand-icon"><i class="fas fa-warehouse" style="color:#fff"></i></div>
+    <div class="sidebar-brand-text">
+      <h1>Warehouse Hub</h1>
+      <p>C&amp;C Warehouse Tools</p>
+    </div>
+  </div>
+  <div class="sidebar-nav">
+    <div class="nav-item active" data-module="dashboard"><i class="fas fa-th-large"></i> Dashboard</div>
+
+    <div class="nav-category">Scanners &amp; Receiving</div>
+    <div class="nav-item" data-module="wms-scanner"><i class="fas fa-barcode"></i> WMS Scanner</div>
+    <div class="nav-item" data-module="invoice-scanner"><i class="fas fa-file-invoice"></i> Invoice Scanner</div>
+    <div class="nav-item" data-module="oreilly-scanner"><i class="fas fa-qrcode"></i> O'Reilly Scanner</div>
+
+    <div class="nav-category">Pickers &amp; Trackers</div>
+    <div class="nav-item" data-module="order-picker"><i class="fas fa-hand-pointer"></i> Order Picker</div>
+    <div class="nav-item" data-module="oreilly-picker"><i class="fas fa-hand-pointer"></i> O'Reilly Picker</div>
+    <div class="nav-item" data-module="dsd-tracker"><i class="fas fa-tasks"></i> DSD Tracker</div>
+
+    <div class="nav-category">Label Makers</div>
+    <div class="nav-item" data-module="label-maker"><i class="fas fa-print"></i> Label Maker</div>
+    <div class="nav-item" data-module="progress-tracker"><i class="fas fa-chart-pie"></i> Progress Tracker</div>
+
+    <div class="nav-category">Converters &amp; Tools</div>
+    <div class="nav-item" data-module="ai-converter"><i class="fas fa-exchange-alt"></i> A&amp;I Converter</div>
+    <div class="nav-item" data-module="packing-converter"><i class="fas fa-file-excel"></i> Packing List</div>
+    <div class="nav-item" data-module="paypa-maker"><i class="fas fa-pallet"></i> PAYPA Maker</div>
+  </div>
+  <div class="sidebar-footer" style="flex-direction:column;gap:6px;padding:12px 16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+      <span><span class="dot"></span>Online</span>
+      <span id="sb-session-count">0 actions</span>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;width:100%;padding-top:7px;border-top:1px solid rgba(255,255,255,.06);">
+      <span id="sb-user-email" style="font-size:10px;color:rgba(255,255,255,.4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:170px;" title=""></span>
+      <button onclick="hubSignOut()" title="Sign out" style="background:transparent;border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.35);font-size:10px;cursor:pointer;padding:3px 8px;border-radius:5px;transition:all .15s;font-family:inherit;" onmouseover="this.style.color='#fff';this.style.borderColor='rgba(255,255,255,.4)'" onmouseout="this.style.color='rgba(255,255,255,.35)';this.style.borderColor='rgba(255,255,255,.12)'">Sign out</button>
+    </div>
+  </div>
+</nav>
+
+<!-- Main Content -->
+<div class="main">
+
+<!-- ==================== DASHBOARD ==================== -->
+<section id="dashboard" class="module active">
+  <div class="dash-hero">
+    <div>
+      <div class="dash-greeting" id="dash-greeting">Good morning</div>
+      <div class="dash-sub">C&amp;C Warehouse Operations &nbsp;·&nbsp; <span id="dash-date">—</span></div>
+    </div>
+    <div class="dash-clock-wrap">
+      <div class="dash-clock" id="dash-clock">00:00:00</div>
+      <div class="dash-date" id="dash-shift">Shift 1</div>
+    </div>
+  </div>
+
+  <div class="dash-stats">
+    <div class="stat-tile" onclick="navigate('wms-scanner')" title="Go to WMS Scanner">
+      <div class="stat-tile-icon" style="background:#eef2ff;color:#6366f1"><i class="fas fa-barcode"></i></div>
+      <div class="stat-tile-num" id="dash-s-scans" style="color:#6366f1">0</div>
+      <div class="stat-tile-label">Scans This Session</div>
+    </div>
+    <div class="stat-tile" onclick="navigate('label-maker')" title="Go to Label Maker">
+      <div class="stat-tile-icon" style="background:#f0fdf4;color:#10b981"><i class="fas fa-print"></i></div>
+      <div class="stat-tile-num" id="dash-s-labels" style="color:#10b981">0</div>
+      <div class="stat-tile-label">Labels Printed</div>
+    </div>
+    <div class="stat-tile" onclick="navigate('order-picker')" title="Go to Order Picker">
+      <div class="stat-tile-icon" style="background:#fffbeb;color:#f59e0b"><i class="fas fa-hand-pointer"></i></div>
+      <div class="stat-tile-num" id="dash-s-picks" style="color:#f59e0b">0</div>
+      <div class="stat-tile-label">Items Picked</div>
+    </div>
+    <div class="stat-tile" onclick="navigate('label-maker')" title="View label queue">
+      <div class="stat-tile-icon" style="background:#fff1f2;color:#ef4444"><i class="fas fa-layer-group"></i></div>
+      <div class="stat-tile-num" id="dash-s-queue" style="color:#ef4444">0</div>
+      <div class="stat-tile-label">Labels In Queue</div>
+    </div>
+  </div>
+
+  <div class="dash-bottom">
+    <div class="card dash-launch-card">
+      <div class="card-title"><i class="fas fa-rocket"></i> Quick Launch</div>
+      <div class="quick-launch">
+        <div class="tool-tile" onclick="navigate('wms-scanner')">
+          <div class="tool-tile-icon" style="background:#eef2ff;color:#6366f1"><i class="fas fa-barcode"></i></div>
+          <div class="tool-tile-name">WMS Scanner</div>
+          <div class="tool-tile-desc">Scan boxes into warehouse system</div>
+        </div>
+        <div class="tool-tile" onclick="navigate('invoice-scanner')">
+          <div class="tool-tile-icon" style="background:#eef2ff;color:#6366f1"><i class="fas fa-file-invoice"></i></div>
+          <div class="tool-tile-name">Invoice Scanner</div>
+          <div class="tool-tile-desc">Scan with invoice tracking</div>
+        </div>
+        <div class="tool-tile" onclick="navigate('oreilly-scanner')">
+          <div class="tool-tile-icon" style="background:#eef2ff;color:#6366f1"><i class="fas fa-qrcode"></i></div>
+          <div class="tool-tile-name">O'Reilly Scanner</div>
+          <div class="tool-tile-desc">K-series part → UPC lookup</div>
+        </div>
+        <div class="tool-tile" onclick="navigate('order-picker')">
+          <div class="tool-tile-icon" style="background:#fffbeb;color:#f59e0b"><i class="fas fa-hand-pointer"></i></div>
+          <div class="tool-tile-name">Order Picker</div>
+          <div class="tool-tile-desc">Pick parts with voice feedback</div>
+        </div>
+        <div class="tool-tile" onclick="navigate('label-maker')">
+          <div class="tool-tile-icon" style="background:#f0fdf4;color:#10b981"><i class="fas fa-print"></i></div>
+          <div class="tool-tile-name">Label Maker</div>
+          <div class="tool-tile-desc">Print 4×6 Zebra labels</div>
+        </div>
+        <div class="tool-tile" onclick="navigate('dsd-tracker')">
+          <div class="tool-tile-icon" style="background:#fffbeb;color:#f59e0b"><i class="fas fa-tasks"></i></div>
+          <div class="tool-tile-name">DSD Tracker</div>
+          <div class="tool-tile-desc">Track DSD order fulfillment</div>
+        </div>
+        <div class="tool-tile" onclick="navigate('packing-converter')">
+          <div class="tool-tile-icon" style="background:#f0f9ff;color:#0ea5e9"><i class="fas fa-file-excel"></i></div>
+          <div class="tool-tile-name">Packing List</div>
+          <div class="tool-tile-desc">Convert Excel packing lists</div>
+        </div>
+        <div class="tool-tile" onclick="navigate('paypa-maker')">
+          <div class="tool-tile-icon" style="background:#f0f9ff;color:#0ea5e9"><i class="fas fa-pallet"></i></div>
+          <div class="tool-tile-name">PAYPA Maker</div>
+          <div class="tool-tile-desc">Generate pallet card PDFs</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card dash-feed-card">
+      <div class="card-title" style="justify-content:space-between">
+        <span><i class="fas fa-stream"></i> Live Activity</span>
+        <span id="dash-feed-count" style="font-size:11px;font-weight:500;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:10px">0</span>
+      </div>
+      <div class="activity-feed" id="dash-feed">
+        <div class="activity-empty"><i class="fas fa-satellite-dish" style="display:block;font-size:28px;margin-bottom:10px;opacity:.3"></i>No activity yet.<br>Start scanning to see live updates.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== WMS SCANNER ==================== -->
+<section id="wms-scanner" class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#eef2ff;color:#6366f1"><i class="fas fa-barcode"></i></div>
+    <div><div class="module-title">WMS Scanner</div><div class="module-sub">Scan products into the WMS warehouse system</div></div>
+    <button class="btn btn-danger" style="margin-left:auto" onclick="wmsReset()"><i class="fas fa-trash"></i> Clear All Data</button>
+  </div>
+  <div class="card">
+    <div class="form-row">
+      <div class="form-group"><label>Warehouse Location</label><input type="text" id="wms-location" placeholder="e.g., C043"></div>
+      <div class="form-group" style="flex:1"><label>Product Code</label><input type="text" id="wms-product" placeholder="Scan or enter code" class="scan-field"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label>Batch Entry (one per line or comma-separated)</label>
+      <textarea id="wms-batch" placeholder="Paste product codes here..."></textarea>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-success" onclick="wmsAddBox()"><i class="fas fa-plus"></i> Add Box</button>
+      <button class="btn btn-success" onclick="wmsAddBatch()"><i class="fas fa-layer-group"></i> Add Batch</button>
+      <button class="btn btn-warning" onclick="wmsUndo()"><i class="fas fa-undo"></i> Undo</button>
+      <button class="btn btn-danger" onclick="wmsReset()"><i class="fas fa-trash"></i> Reset</button>
+      <button class="btn btn-info" onclick="wmsDownload()"><i class="fas fa-download"></i> Download CSV</button>
+      <button class="btn btn-secondary" onclick="wmsEmailAlex()"><i class="fas fa-envelope"></i> Email Alex</button>
+    </div>
+    <div id="wms-status" class="status-msg" style="display:none"></div>
+    <div id="wms-counter" class="counter">Total Scans: 0</div>
+  </div>
+  <div class="card">
+    <table class="data-table">
+      <thead><tr><th>Product Code</th><th>Qty</th><th>Warehouse Location</th></tr></thead>
+      <tbody id="wms-table"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ==================== INVOICE SCANNER ==================== -->
+<section id="invoice-scanner" class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#eef2ff;color:#6366f1"><i class="fas fa-file-invoice"></i></div>
+    <div><div class="module-title">Invoice Scanner</div><div class="module-sub">Scan parts with invoice number tracking</div></div>
+    <button class="btn btn-danger" style="margin-left:auto" onclick="invReset()"><i class="fas fa-trash"></i> Clear All Data</button>
+  </div>
+  <div class="card">
+    <div class="form-row">
+      <div class="form-group"><label>Warehouse Location</label><input type="text" id="inv-location" placeholder="e.g., C043"></div>
+      <div class="form-group"><label>Part #</label><input type="text" id="inv-part" placeholder="Scan or enter part #"></div>
+      <div class="form-group"><label>Invoice #</label><input type="text" id="inv-invoice" placeholder="Enter invoice #"></div>
+      <div class="form-group"><label>Qty</label><input type="text" id="inv-qty" placeholder="Qty"></div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-success" onclick="invAddBox()"><i class="fas fa-plus"></i> Add Entry</button>
+      <button class="btn btn-warning" onclick="invUndo()"><i class="fas fa-undo"></i> Undo</button>
+      <button class="btn btn-danger" onclick="invReset()"><i class="fas fa-trash"></i> Reset</button>
+      <button class="btn btn-info" onclick="invDownload()"><i class="fas fa-download"></i> Download CSV</button>
+      <button class="btn btn-secondary" onclick="invEmailAlex()"><i class="fas fa-envelope"></i> Email Alex</button>
+    </div>
+    <div id="inv-status" class="status-msg" style="display:none"></div>
+    <div id="inv-counter" class="counter">Total Entries: 0</div>
+  </div>
+  <div class="card">
+    <table class="data-table">
+      <thead><tr><th>Part #</th><th>Invoice #</th><th>Qty</th><th>Warehouse Location</th></tr></thead>
+      <tbody id="inv-table"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ==================== O'REILLY SCANNER ==================== -->
+<section id="oreilly-scanner" class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#eef2ff;color:#6366f1"><i class="fas fa-qrcode"></i></div>
+    <div><div class="module-title">O'Reilly Scanner</div><div class="module-sub">K-series part number → UPC conversion &amp; WMS export</div></div>
+    <button class="btn btn-danger" style="margin-left:auto" onclick="oscReset()"><i class="fas fa-trash"></i> Clear All Data</button>
+  </div>
+  <div class="card">
+    <div class="form-row">
+      <div class="form-group"><label>Warehouse Location</label><input type="text" id="osc-location" placeholder="e.g., C043"></div>
+      <div class="form-group"><label>Part Number</label><input type="text" id="osc-part" placeholder="e.g., K060875"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label>Batch Part Numbers (one per line)</label>
+      <textarea id="osc-batch" placeholder="Paste part numbers here..."></textarea>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-success" onclick="oscAddBox()"><i class="fas fa-plus"></i> Add Box</button>
+      <button class="btn btn-success" onclick="oscAddBatch()"><i class="fas fa-layer-group"></i> Add Batch</button>
+      <button class="btn btn-warning" onclick="oscUndo()"><i class="fas fa-undo"></i> Undo</button>
+      <button class="btn btn-danger" onclick="oscReset()"><i class="fas fa-trash"></i> Reset</button>
+      <button class="btn btn-info" onclick="oscDownload()"><i class="fas fa-download"></i> Download CSV</button>
+      <button class="btn btn-secondary" onclick="oscEmailAlex()"><i class="fas fa-envelope"></i> Email Alex</button>
+    </div>
+    <div id="osc-status" class="status-msg" style="display:none"></div>
+    <div id="osc-counter" class="counter">Total Scans: 0</div>
+  </div>
+  <div class="card">
+    <table class="data-table">
+      <thead><tr><th>UPC</th><th>Qty</th><th>Warehouse Location</th></tr></thead>
+      <tbody id="osc-table"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ==================== ORDER PICKER ==================== -->
+<section id="order-picker" class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#fffbeb;color:#f59e0b"><i class="fas fa-hand-pointer"></i></div>
+    <div><div class="module-title">Order Picker</div><div class="module-sub">Scan parts against an order list with voice confirmation</div></div>
+    <button class="btn btn-danger" style="margin-left:auto" onclick="opDelete()"><i class="fas fa-trash"></i> Clear All Data</button>
+  </div>
+  <div class="card">
+    <div class="picker-layout">
+      <div>
+        <div id="op-counter" class="counter">Total Quantity: 0 (Entries: 0)</div>
+        <div class="picker-progress-wrap" id="op-progress" style="display:none">
+          <div class="picker-ring-container">
+            <svg width="80" height="80" viewBox="0 0 80 80"><circle class="picker-ring-bg" cx="40" cy="40" r="34"/><circle class="picker-ring-bar" id="op-ring-bar" cx="40" cy="40" r="34" stroke-dasharray="213.63" stroke-dashoffset="213.63"/></svg>
+            <div class="picker-ring-pct" id="op-ring-pct">0%</div>
+          </div>
+          <div class="picker-progress-stats"><span><strong id="op-prog-picked">0</strong> picked</span><span><strong id="op-prog-remaining">0</strong> remaining</span><span><strong id="op-prog-total">0</strong> total qty</span></div>
+        </div>
+        <div class="drop-zone" id="op-dropzone" onclick="document.getElementById('op-file').click()">
+          <p><i class="fas fa-cloud-upload-alt"></i> Drag & drop CSV or click to select</p>
+          <input type="file" id="op-file" accept=".csv">
+        </div>
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group" style="flex:1"><label>Part Number</label><input type="text" id="op-input" placeholder="Scan part number"></div>
+          <button class="btn btn-primary" onclick="opCheck()" id="op-check-btn" disabled style="align-self:end"><i class="fas fa-check"></i> Check</button>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-danger" id="op-delete-btn" style="display:none" onclick="opDelete()"><i class="fas fa-trash"></i> Delete Data</button>
+          <button class="btn btn-success" id="op-dl-remaining" style="display:none" onclick="opDownloadRemaining()"><i class="fas fa-download"></i> Remaining</button>
+          <button class="btn btn-warning" id="op-dl-picked" style="display:none" onclick="opDownloadPicked()"><i class="fas fa-download"></i> Picked</button>
+          <button class="btn btn-secondary" id="op-undo-btn" style="display:none" onclick="opUndo()"><i class="fas fa-undo"></i> Undo</button>
+        </div>
+        <div class="status-light" id="op-light"></div>
+        <div id="op-status-msg" style="text-align:center;font-size:13px;color:#718096"></div>
+      </div>
+      <div>
+        <div class="parts-list" id="op-parts"><ul></ul></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== O'REILLY PICKER ==================== -->
+<section id="oreilly-picker" class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#fffbeb;color:#f59e0b"><i class="fas fa-hand-pointer"></i></div>
+    <div><div class="module-title">O'Reilly Picker</div><div class="module-sub">Pick O'Reilly parts with digit-by-digit voice readout</div></div>
+    <button class="btn btn-danger" style="margin-left:auto" onclick="orpkDelete()"><i class="fas fa-trash"></i> Clear All Data</button>
+  </div>
+  <div class="card">
+    <div class="picker-layout">
+      <div>
+        <div id="orpk-counter" class="counter">Total Quantity: 0 (Entries: 0)</div>
+        <div class="picker-progress-wrap" id="orpk-progress" style="display:none">
+          <div class="picker-ring-container">
+            <svg width="80" height="80" viewBox="0 0 80 80"><circle class="picker-ring-bg" cx="40" cy="40" r="34"/><circle class="picker-ring-bar" id="orpk-ring-bar" cx="40" cy="40" r="34" stroke-dasharray="213.63" stroke-dashoffset="213.63"/></svg>
+            <div class="picker-ring-pct" id="orpk-ring-pct">0%</div>
+          </div>
+          <div class="picker-progress-stats"><span><strong id="orpk-prog-picked">0</strong> picked</span><span><strong id="orpk-prog-remaining">0</strong> remaining</span><span><strong id="orpk-prog-total">0</strong> total qty</span></div>
+        </div>
+        <div class="drop-zone" id="orpk-dropzone" onclick="document.getElementById('orpk-file').click()">
+          <p><i class="fas fa-cloud-upload-alt"></i> Drag & drop CSV or click to select</p>
+          <input type="file" id="orpk-file" accept=".csv">
+        </div>
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group" style="flex:1"><label>Part Number</label><input type="text" id="orpk-input" placeholder="Scan part number"></div>
+          <button class="btn btn-primary" onclick="orpkCheck()" id="orpk-check-btn" disabled style="align-self:end"><i class="fas fa-check"></i> Check</button>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-danger" id="orpk-delete-btn" style="display:none" onclick="orpkDelete()"><i class="fas fa-trash"></i> Delete Data</button>
+          <button class="btn btn-success" id="orpk-dl-remaining" style="display:none" onclick="orpkDownloadRemaining()"><i class="fas fa-download"></i> Remaining</button>
+          <button class="btn btn-warning" id="orpk-dl-picked" style="display:none" onclick="orpkDownloadPicked()"><i class="fas fa-download"></i> Picked</button>
+          <button class="btn btn-secondary" id="orpk-undo-btn" style="display:none" onclick="orpkUndo()"><i class="fas fa-undo"></i> Undo</button>
+        </div>
+        <div class="status-light" id="orpk-light"></div>
+        <div id="orpk-status-msg" style="text-align:center;font-size:13px;color:#718096"></div>
+      </div>
+      <div>
+        <div class="parts-list" id="orpk-parts"><ul></ul></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== DSD TRACKER ==================== -->
+<section id="dsd-tracker" class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#fffbeb;color:#f59e0b"><i class="fas fa-tasks"></i></div>
+    <div><div class="module-title">DSD Tracker</div><div class="module-sub">Track DSD direct-store delivery order fulfillment</div></div>
+    <button class="btn btn-danger" style="margin-left:auto" onclick="dsdDelete()"><i class="fas fa-trash"></i> Clear All Data</button>
+  </div>
+  <div class="card">
+    <div class="picker-layout">
+      <div>
+        <div id="dsd-counter" class="counter">Total Quantity: 0 (Entries: 0)</div>
+        <div class="picker-progress-wrap" id="dsd-progress" style="display:none">
+          <div class="picker-ring-container">
+            <svg width="80" height="80" viewBox="0 0 80 80"><circle class="picker-ring-bg" cx="40" cy="40" r="34"/><circle class="picker-ring-bar" id="dsd-ring-bar" cx="40" cy="40" r="34" stroke-dasharray="213.63" stroke-dashoffset="213.63"/></svg>
+            <div class="picker-ring-pct" id="dsd-ring-pct">0%</div>
+          </div>
+          <div class="picker-progress-stats"><span><strong id="dsd-prog-picked">0</strong> picked</span><span><strong id="dsd-prog-remaining">0</strong> remaining</span><span><strong id="dsd-prog-total">0</strong> total qty</span></div>
+        </div>
+        <div class="drop-zone" id="dsd-dropzone" onclick="document.getElementById('dsd-file').click()">
+          <p><i class="fas fa-cloud-upload-alt"></i> Drag & drop CSV or click to select</p>
+          <input type="file" id="dsd-file" accept=".csv,.xlsx,.xls">
+        </div>
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group" style="flex:1"><label>Part Number</label><input type="text" id="dsd-input" placeholder="Scan part number"></div>
+          <button class="btn btn-primary" onclick="dsdCheck()" id="dsd-check-btn" disabled style="align-self:end"><i class="fas fa-check"></i> Check</button>
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-danger" id="dsd-delete-btn" style="display:none" onclick="dsdDelete()"><i class="fas fa-trash"></i> Delete Data</button>
+          <button class="btn btn-success" id="dsd-dl-remaining" style="display:none" onclick="dsdDownloadRemaining()"><i class="fas fa-download"></i> Remaining</button>
+          <button class="btn btn-warning" id="dsd-dl-picked" style="display:none" onclick="dsdDownloadPicked()"><i class="fas fa-download"></i> Picked</button>
+          <button class="btn btn-secondary" id="dsd-undo-btn" style="display:none" onclick="dsdUndo()"><i class="fas fa-undo"></i> Undo</button>
+        </div>
+        <div class="status-light" id="dsd-light"></div>
+        <div id="dsd-status-msg" style="text-align:center;font-size:13px;color:#718096"></div>
+      </div>
+      <div>
+        <div class="parts-list" id="dsd-parts"><ul></ul></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== LABEL MAKER ==================== -->
+<section id="label-maker" class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#f0fdf4;color:#10b981"><i class="fas fa-print"></i></div>
+    <div><div class="module-title">Label Maker</div><div class="module-sub">Scan &amp; auto-print 4×6 Zebra labels for AutoZone, A&amp;I, O'Reilly — supports CSV &amp; Excel</div></div>
+    <button class="btn btn-danger" style="margin-left:auto" onclick="lmReset()"><i class="fas fa-trash"></i> Clear All Data</button>
+  </div>
+  <div class="card">
+    <div class="form-row" style="margin-bottom:14px">
+      <div class="form-group">
+        <label>Customer</label>
+        <select id="lm-customer" onchange="lmUpdatePreview()">
+          <option value="autozone">AutoZone</option>
+          <option value="ai">A&I Products</option>
+          <option value="oreilly">O'Reilly Auto Parts</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Printer <span id="lm-bp-badge" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;background:#fee2e2;color:#dc2626;margin-left:6px;vertical-align:middle">● No BrowserPrint</span></label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="lm-printer-select" style="flex:1;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:9px;font-family:inherit;font-size:13px;font-weight:500;outline:none">
+            <option value="0">Default (Browser Print)</option>
+          </select>
+          <button class="btn btn-ghost" onclick="lmDetectZebraPrinters()" style="padding:9px 12px" title="Auto-detect Zebra printers"><i class="fas fa-sync"></i></button>
+          <button class="btn btn-ghost" onclick="lmToggleAddPrinter()" style="padding:9px 12px" title="Add printer manually"><i class="fas fa-plus"></i></button>
+        </div>
+        <div id="lm-bp-hint" style="display:none;font-size:11px;color:#64748b;margin-top:5px">
+          For silent printing, install <a href="https://www.zebra.com/us/en/software/printer-software/browser-print.html" target="_blank" style="color:#3b82f6">Zebra BrowserPrint</a>, then click <i class="fas fa-sync"></i> to detect.
+        </div>
+      </div>
+    </div>
+    <div id="lm-add-printer-form" style="display:none;margin-bottom:14px;padding:12px 14px;background:#f8fafc;border-radius:9px;border:1px solid #e2e8f0">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:8px">Add Printer</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input type="text" id="lm-printer-name" placeholder="Printer name (e.g. Zebra ZT411 — must match Zebra Browser Print)" style="flex:1;min-width:200px;padding:8px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-family:inherit;font-size:13px;outline:none">
+        <button class="btn btn-primary" onclick="lmAddPrinter()" style="padding:8px 14px"><i class="fas fa-save"></i> Save</button>
+        <button class="btn btn-ghost" onclick="lmToggleAddPrinter()" style="padding:8px 12px">Cancel</button>
+        <button class="btn btn-danger" id="lm-remove-printer-btn" onclick="lmRemovePrinter()" style="padding:8px 12px;display:none"><i class="fas fa-trash"></i> Remove Selected</button>
+      </div>
+    </div>
+    <div class="drop-zone" id="lm-dropzone" onclick="document.getElementById('lm-file').click()">
+      <p><i class="fas fa-cloud-upload-alt"></i> Drag &amp; drop CSV / Excel or click to select</p>
+      <p id="lm-fname" style="font-size:12px;margin-top:4px;color:#94a3b8"></p>
+      <input type="file" id="lm-file" accept=".csv,.xlsx,.xls">
+    </div>
+    <div id="lm-csv-status" class="status-msg" style="display:none"></div>
+    <div id="lm-stats-bar" style="display:none;gap:10px;flex-wrap:wrap;margin-top:12px">
+      <div class="pt-detail-stat"><div class="v" id="lm-stat-loaded" style="color:#0f172a">0</div><div class="l">Loaded</div></div>
+      <div class="pt-detail-stat"><div class="v" id="lm-stat-printed" style="color:#10b981">0</div><div class="l">Printed</div></div>
+      <div class="pt-detail-stat"><div class="v" id="lm-stat-remaining" style="color:#6366f1">0</div><div class="l">Remaining</div></div>
+      <div class="pt-detail-stat"><div class="v" id="lm-stat-unfound" style="color:#ef4444">0</div><div class="l">Unfound</div></div>
+    </div>
+  </div>
+
+  <div class="card" id="lm-scan-card" style="display:none">
+    <h3 style="margin-bottom:12px">Scan & Print</h3>
+    <div class="form-row">
+      <div class="form-group" style="flex:1">
+        <label id="lm-scan-label">Scan Barcode</label>
+        <input type="text" id="lm-scan" placeholder="Scan barcode..." class="scan-field">
+      </div>
+      <button class="btn btn-success" onclick="lmScan()" style="align-self:end"><i class="fas fa-barcode"></i> Add to Queue</button>
+    </div>
+    <div style="margin-top:14px;display:flex;align-items:center;gap:12px;padding:12px 14px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0">
+      <label class="toggle-wrap" for="lm-autoprint">
+        <input type="checkbox" id="lm-autoprint" checked>
+        <div class="toggle-track"></div>
+        <span class="toggle-label">Auto-print on scan</span>
+      </label>
+      <span style="color:#94a3b8;font-size:12px">— label fires to printer immediately after each successful scan</span>
+    </div>
+    <div id="lm-scan-status" class="status-msg" style="display:none"></div>
+    <div id="lm-last-scan" style="display:none;margin-top:8px;padding:12px;background:#f0fdf4;border-radius:8px;border-left:4px solid #22c55e">
+      <strong>Last Scanned:</strong> <span id="lm-last-detail"></span>
+    </div>
+  </div>
+
+  <div class="card" id="lm-queue-card" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3>Print Queue (<span id="lm-queue-count">0</span>)</h3>
+      <div class="btn-group" style="margin:0">
+        <button class="btn btn-warning" onclick="lmPrintAll()"><i class="fas fa-print"></i> Print All</button>
+        <button class="btn btn-primary" onclick="lmDownloadAllZPL()"><i class="fas fa-download"></i> ZPL</button>
+        <button class="btn btn-success" id="lm-unfound-btn" onclick="lmDownloadUnfound()" style="display:none" disabled><i class="fas fa-download"></i> Unfound (<span id="lm-unfound-count">0</span>)</button>
+        <button class="btn btn-danger" onclick="lmClearQueue()" style="padding:8px 14px"><i class="fas fa-trash"></i> Clear</button>
+      </div>
+    </div>
+    <table class="data-table">
+      <thead><tr><th>#</th><th>Order No</th><th>UPC</th><th>Mat</th><th>Qty</th><th>Actions</th></tr></thead>
+      <tbody id="lm-queue-table"></tbody>
+    </table>
+  </div>
+
+  <!-- Hidden print frame for Zebra labels -->
+  <div id="lm-print-frame"></div>
+
+  <div class="card" id="lm-preview-card" style="display:none">
+    <h3 style="margin-bottom:12px">Label Preview</h3>
+    <div id="lm-preview" style="background:#fff;border:2px solid #1a1a2e;border-radius:4px;padding:20px;font-family:monospace;font-size:13px;max-width:500px">
+    </div>
+  </div>
+</section>
+
+<!-- ==================== PROGRESS TRACKER ==================== -->
+<section id="progress-tracker" class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#f0fdf4;color:#10b981"><i class="fas fa-chart-pie"></i></div>
+    <div><div class="module-title">Progress Tracker</div><div class="module-sub">Track order fulfillment progress and manage pallets</div></div>
+    <button class="btn btn-danger" style="margin-left:auto" onclick="ptReset()"><i class="fas fa-trash"></i> Clear All Data</button>
+  </div>
+  <div class="card">
+    <div class="drop-zone" id="pt-dropzone" onclick="document.getElementById('pt-file').click()">
+      <p><i class="fas fa-cloud-upload-alt"></i> Drag & drop CSV / Excel or click to select</p>
+      <p style="font-size:12px;margin-top:4px">Format: Order#, Part#, Name, Qty</p>
+      <input type="file" id="pt-file" accept=".csv,.xlsx,.xls">
+    </div>
+    <div id="pt-csv-status" class="status-msg" style="display:none"></div>
+  </div>
+
+  <!-- Scan bar — shown once CSV loaded, always visible -->
+  <div class="card" id="pt-scan-card" style="display:none">
+    <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px">
+        <label style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:5px">Scan Part Number</label>
+        <input type="text" id="pt-scan" placeholder="Scan or type a part number…" class="scan-field" style="width:100%">
+      </div>
+      <div style="min-width:160px">
+        <label style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:5px">Active Pallet</label>
+        <select id="pt-active-pallet" style="padding:13px 12px;border:2px solid #e2e8f0;border-radius:10px;font-size:14px;font-weight:600;font-family:inherit;outline:none;background:#fff;min-width:160px">
+          <option value="">— track only —</option>
+        </select>
+      </div>
+      <button class="btn btn-success" onclick="ptNewPalletAndSelect()" style="align-self:flex-end;white-space:nowrap"><i class="fas fa-plus"></i> New Pallet</button>
+    </div>
+    <div id="pt-scan-feedback" style="display:none;margin-top:12px;padding:12px 16px;border-radius:10px;font-weight:600;font-size:14px;align-items:center;gap:10px"></div>
+    <div id="pt-scan-last" style="display:none;margin-top:10px;padding:10px 14px;background:#f8fafc;border-radius:9px;font-size:13px;color:#475569;border:1px solid #e2e8f0"></div>
+  </div>
+
+  <!-- Orders list view -->
+  <div id="pt-orders-card" style="display:none">
+    <!-- Summary bar -->
+    <div class="pt-summary-bar" id="pt-summary-bar"></div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px">
+        <div class="card-title" style="margin:0"><i class="fas fa-list-ul"></i> Orders <span id="pt-order-count" style="font-weight:500;color:#94a3b8;font-size:13px"></span></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <input type="text" id="pt-search" placeholder="Search orders or parts…" style="padding:8px 13px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:13px;width:210px;outline:none;font-family:inherit" onfocus="this.style.borderColor='#6366f1'" onblur="this.style.borderColor='#e2e8f0'">
+          <button class="btn btn-success btn-sm" onclick="ptExportMissing()"><i class="fas fa-download"></i> Missing</button>
+          <button class="btn btn-warning btn-sm" onclick="ptExportPulled()"><i class="fas fa-download"></i> Pulled</button>
+        </div>
+      </div>
+      <div id="pt-customer-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"></div>
+      <div id="pt-orders-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px"></div>
+    </div>
+
+    <!-- Pallet Management (collapsible) -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="ptTogglePallets()">
+        <div class="card-title" style="margin:0"><i class="fas fa-pallet"></i> Pallet Management</div>
+        <i class="fas fa-chevron-down" id="pt-pallet-chevron" style="color:#94a3b8;transition:transform .2s"></i>
+      </div>
+      <div id="pt-pallet-body" style="display:none;margin-top:16px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+          <button class="btn btn-success btn-sm" onclick="ptAddPallet()"><i class="fas fa-plus"></i> New Pallet</button>
+          <button class="btn btn-ghost btn-sm" onclick="ptClearPallets()"><i class="fas fa-trash"></i> Clear All</button>
+        </div>
+        <div class="form-row" style="margin-bottom:14px">
+          <div class="form-group">
+            <label>Select Pallet</label>
+            <select id="pt-pallet-select" onchange="ptShowPallet()"></select>
+          </div>
+          <div class="form-group" style="flex:1">
+            <label>Part Number</label>
+            <input type="text" id="pt-pallet-part" placeholder="Enter part number">
+          </div>
+          <div class="form-group" style="width:80px">
+            <label>Qty</label>
+            <input type="number" id="pt-pallet-qty" value="1" min="1">
+          </div>
+          <button class="btn btn-primary" onclick="ptAddPartToPallet()" style="align-self:flex-end"><i class="fas fa-plus"></i> Add</button>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Part #</th><th>Name</th><th>Qty</th><th>Actions</th></tr></thead>
+          <tbody id="pt-pallet-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Order detail view (replaces list, shown inline at top) -->
+  <div class="card" id="pt-detail-card" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div>
+        <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:3px">Order Detail</div>
+        <div style="font-size:22px;font-weight:900;letter-spacing:-.5px" id="pt-detail-order">—</div>
+      </div>
+      <button class="btn btn-ghost" onclick="ptCloseDetail()"><i class="fas fa-arrow-left"></i> All Orders</button>
+    </div>
+
+    <!-- Stats row -->
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+      <div class="pt-detail-stat">
+        <div class="v" id="pt-progress-pct" style="color:#6366f1">0%</div>
+        <div class="l">Complete</div>
+      </div>
+      <div class="pt-detail-stat">
+        <div class="v" id="pt-detail-total" style="color:#0f172a">0</div>
+        <div class="l">Total Units</div>
+      </div>
+      <div class="pt-detail-stat">
+        <div class="v" id="pt-detail-fulfilled" style="color:#10b981">0</div>
+        <div class="l">Pulled</div>
+      </div>
+      <div class="pt-detail-stat">
+        <div class="v" id="pt-detail-missing" style="color:#ef4444">0</div>
+        <div class="l">Missing</div>
+      </div>
+    </div>
+
+    <!-- Progress bar (large) -->
+    <div class="progress-bar-wrap" style="height:14px;margin-bottom:20px">
+      <div class="progress-bar-fill" id="pt-progress-ring-bar" style="width:0%;min-width:0"></div>
+    </div>
+
+    <table class="data-table">
+      <thead><tr><th>Part #</th><th>Name</th><th>Ordered</th><th>Pulled</th><th>Missing</th><th>Status</th></tr></thead>
+      <tbody id="pt-detail-table"></tbody>
+    </table>
+  </div>
+
+  <!-- keep legacy SVG ring hidden (id referenced in JS) -->
+  <svg style="display:none"><circle id="pt-progress-ring"></circle></svg>
+</section>
+
+<!-- ==================== A&I CONVERTER ==================== -->
+<section id="ai-converter" class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#f0f9ff;color:#0ea5e9"><i class="fas fa-exchange-alt"></i></div>
+    <div><div class="module-title">A&amp;I Converter</div><div class="module-sub">Map Size column to UPC using LIST and LEGEND CSV files</div></div>
+    <button class="btn btn-danger" style="margin-left:auto" onclick="aiReset()"><i class="fas fa-trash"></i> Clear All Data</button>
+  </div>
+  <div class="card">
+    <p style="margin-bottom:16px;color:#555">Upload the LIST and LEGEND CSV files to convert the Size column to UPC.</p>
+    <div class="form-row">
+      <div class="form-group"><label>Upload LIST CSV</label><input type="file" id="ai-list" accept=".csv"></div>
+      <div class="form-group"><label>Upload LEGEND CSV</label><input type="file" id="ai-legend" accept=".csv"></div>
+      <button class="btn btn-primary" onclick="aiProcess()" style="align-self:end"><i class="fas fa-cog"></i> Process</button>
+      <button class="btn btn-success" id="ai-dl-btn" onclick="aiDownload()" style="align-self:end" disabled><i class="fas fa-download"></i> Download CSV</button>
+    </div>
+    <div id="ai-status" class="status-msg" style="display:none"></div>
+  </div>
+  <div class="card">
+    <h3 style="margin-bottom:12px">Result Preview</h3>
+    <table class="data-table">
+      <thead><tr><th>Invoice No</th><th>Pallet Ref</th><th>Size</th><th>UPC</th></tr></thead>
+      <tbody id="ai-table"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ==================== PACKING LIST CONVERTER ==================== -->
+<section id="packing-converter" class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#f0f9ff;color:#0ea5e9"><i class="fas fa-file-excel"></i></div>
+    <div><div class="module-title">Packing List Converter</div><div class="module-sub">Merge Excel packing lists into O'Reilly CSV &amp; huntlist format</div></div>
+    <button class="btn btn-danger" style="margin-left:auto" onclick="plcReset()"><i class="fas fa-trash"></i> Clear All Data</button>
+  </div>
+  <div class="card">
+    <p style="margin-bottom:16px;color:#555">Upload packing list Excel files to combine into O'Reilly CSV format.</p>
+    <div class="upload-grid">
+      <div class="drop-zone" id="plc-zone1" onclick="document.getElementById('plc-file1').click()">
+        <p><strong>File 1</strong> (Required)</p>
+        <p style="font-size:12px">e.g. MRY - Packing Lists & Barcodes.xlsx</p>
+        <input type="file" id="plc-file1" accept=".xlsx,.xls">
+        <div class="file-name-display" id="plc-fname1"></div>
+      </div>
+      <div class="drop-zone" id="plc-zone2" onclick="document.getElementById('plc-file2').click()">
+        <p><strong>File 2</strong> (Optional)</p>
+        <p style="font-size:12px">e.g. MBH - Packing Lists & Barcodes.xlsx</p>
+        <input type="file" id="plc-file2" accept=".xlsx,.xls">
+        <div class="file-name-display" id="plc-fname2"></div>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-primary" id="plc-convert-btn" onclick="plcConvert()" disabled><i class="fas fa-cog"></i> Convert & Generate CSV</button>
+      <button class="btn btn-success" id="plc-dl-btn" onclick="plcDownload()" style="display:none"><i class="fas fa-download"></i> Download CSV</button>
+      <button class="btn btn-secondary" onclick="plcReset()"><i class="fas fa-redo"></i> Reset</button>
+    </div>
+    <div id="plc-status" class="status-msg" style="display:none"></div>
+  </div>
+  <div class="stats-grid" id="plc-stats" style="display:none">
+    <div class="stat-card"><div class="stat-num" id="plc-s1">0</div><div class="stat-label" id="plc-s1l">File 1</div></div>
+    <div class="stat-card"><div class="stat-num" id="plc-s2">0</div><div class="stat-label" id="plc-s2l">File 2</div></div>
+    <div class="stat-card"><div class="stat-num" id="plc-st">0</div><div class="stat-label">Total Rows</div></div>
+    <div class="stat-card"><div class="stat-num" id="plc-sd">0</div><div class="stat-label">Unique DCs</div></div>
+  </div>
+  <div class="card" id="plc-preview-card" style="display:none">
+    <h3 style="margin-bottom:12px">Preview (first 15 rows)</h3>
+    <div style="overflow-x:auto"><table class="data-table" id="plc-preview"></table></div>
+  </div>
+  <div class="card" id="plc-huntlist-card" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+      <div>
+        <h3>Consolidated Huntlist</h3>
+        <p id="plc-hunt-info" style="font-size:13px;color:#555"></p>
+      </div>
+      <button class="btn btn-info" onclick="plcDownloadHuntlist()"><i class="fas fa-download"></i> Download Huntlist</button>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== PAYPA MAKER ==================== -->
+<section id="paypa-maker" class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#f0f9ff;color:#0ea5e9"><i class="fas fa-pallet"></i></div>
+    <div><div class="module-title">PAYPA Maker</div><div class="module-sub">Process PO data and generate pallet card PDFs by destination</div></div>
+    <button class="btn btn-danger" style="margin-left:auto" onclick="paypaReset()"><i class="fas fa-trash"></i> Clear All Data</button>
+  </div>
+  <div class="card">
+    <div class="form-row">
+      <div class="form-group"><label>Upload CSV</label><input type="file" id="paypa-file" accept=".csv" onchange="paypaHandleFile()"></div>
+      <div class="form-group">
+        <label>Week</label>
+        <select id="paypa-week" onchange="paypaUpdate()">
+          <option value="">Select Week</option>
+          <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Month</label>
+        <select id="paypa-month" onchange="paypaUpdate()">
+          <option value="">Select Month</option>
+          <option>January</option><option>February</option><option>March</option><option>April</option><option>May</option><option>June</option>
+          <option>July</option><option>August</option><option>September</option><option>October</option><option>November</option><option>December</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label>Or Paste Data (PO Number,Quantity)</label>
+      <textarea id="paypa-paste" placeholder="PO Number,Quantity&#10;10508724,57"></textarea>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-primary" onclick="paypaHandlePaste()"><i class="fas fa-paste"></i> Load Pasted Data</button>
+      <button class="btn btn-secondary" onclick="paypaTemplate()"><i class="fas fa-file"></i> Download Template</button>
+      <button class="btn btn-success" id="paypa-dl-btn" style="display:none" onclick="paypaDownloadCSV()"><i class="fas fa-download"></i> Download Enhanced CSV</button>
+    </div>
+    <div id="paypa-status" class="status-msg" style="display:none"></div>
+  </div>
+  <div class="card" id="paypa-table-card" style="display:none">
+    <table class="data-table">
+      <thead><tr><th>PO Number</th><th>Quantity</th><th>Week</th><th>Month</th><th>Destination</th><th>Color</th><th>Pallets</th><th>PDF</th></tr></thead>
+      <tbody id="paypa-table"></tbody>
+    </table>
+  </div>
+</section>
+
+</div><!-- /main -->
+
+<script>
+/* ================================================================
+   SUPABASE AUTH GUARD
+   ================================================================ */
+(function() {
+  const { createClient } = supabase;
+  window._sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Block render until auth is confirmed
+  document.documentElement.style.visibility = 'hidden';
+
+  window._sb.auth.getSession().then(({ data: { session } }) => {
+    if (!session) {
+      window.location.replace('login.html');
+    } else {
+      // Show the app
+      document.documentElement.style.visibility = '';
+      // Display user email in sidebar footer
+      const email = session.user.email || '';
+      const name  = session.user.user_metadata?.full_name || email.split('@')[0];
+      const el = document.getElementById('sb-user-email');
+      if (el) { el.textContent = name; el.title = email; }
+      // Init shared DB layer
+      db.init(window._sb, email);
+
+      // Load all tool data from the database
+      wmsLoadFromDB();
+      invLoadFromDB();
+      oscLoadFromDB();
+      opPicker.loadFromDB();
+      orpkPicker.loadFromDB();
+      dsdPicker.loadFromDB();
+      ptLoadFromDB();
+      lmLoadFromDB();
+
+      // Realtime subscriptions — refresh tool state when any team member changes data
+      db.subscribeScanLog('wms',              () => wmsLoadFromDB());
+      db.subscribeScanLog('invoice',          () => invLoadFromDB());
+      db.subscribeScanLog('oreilly-scanner',  () => oscLoadFromDB());
+      db.subscribePickList('orderPicker',     () => opPicker.loadFromDB());
+      db.subscribePickList('oreillyPicker',   () => orpkPicker.loadFromDB());
+      db.subscribePickList('dsdTracker',      () => dsdPicker.loadFromDB());
+      db.subscribePTSession(                  () => ptLoadFromDB());
+      db.subscribeLabelMaker(                 () => lmLoadFromDB());
+    }
+  });
+
+  // Listen for auth changes (e.g. session expires, sign-out)
+  window._sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT' || !session) {
+      window.location.replace('login.html');
+    }
+  });
+})();
+
+function hubSignOut() {
+  window._sb.auth.signOut().then(() => {
+    window.location.replace('login.html');
+  });
+}
+
+/* ================================================================
+   SHARED UTILITIES
+   ================================================================ */
+function showMsg(id, msg, type) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'status-msg ' + (type || 'info');
+  el.style.display = 'block';
+}
+function hideMsg(id) { document.getElementById(id).style.display = 'none'; }
+
+function emailAlex(csvContent, filename, subject) {
+  downloadBlob(csvContent, filename);
+  // Format CSV data as a readable table for the email body
+  const lines = csvContent.trim().split('\n');
+  let tableText = '';
+  if (lines.length > 1) {
+    const headers = lines[0].split(',');
+    for (let i = 1; i < lines.length; i++) {
+      const vals = lines[i].split(',');
+      const row = headers.map((h, j) => vals[j] && vals[j].trim() ? `${h.trim()}: ${vals[j].trim()}` : '').filter(Boolean).join('  |  ');
+      if (row) tableText += row + '\n';
+    }
+  }
+  const subj = encodeURIComponent(subject || `Warehouse Export — ${todayStr()}`);
+  const body = encodeURIComponent(`Hi Alex,\n\nHere is today's export (${filename}):\n\n${tableText}\n— Warehouse Hub`);
+  setTimeout(() => { window.location.href = `mailto:alex@candcwarehouse.com?subject=${subj}&body=${body}`; }, 300);
+}
+
+function downloadBlob(content, filename, type) {
+  const blob = new Blob([content], { type: type || 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+function todayStr() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function parseCSVLine(line) {
+  const result = [];
+  let current = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') inQuotes = !inQuotes;
+    else if (ch === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
+    else current += ch;
+  }
+  result.push(current.trim());
+  return result.map(f => f.replace(/^"(.+)"$/, '$1'));
+}
+
+// Speech
+const numberToWords = (num) => {
+  const ones = ['zero','one','two','three','four','five','six','seven','eight','nine'];
+  const teens = ['ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+  const tens = ['twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+  num = parseInt(num, 10);
+  if (num < 10) return ones[num];
+  if (num < 20) return teens[num - 10];
+  const t = Math.floor(num / 10), o = num % 10;
+  return o === 0 ? tens[t-2] : `${tens[t-2]}-${ones[o]}`;
+};
+
+function speak(text, mode) {
+  speechSynthesis.cancel();
+  let spokenText = text;
+  if (text !== 'No' && text !== 'No parts' && text !== 'Ready') {
+    const s = String(text);
+    if (mode === 'digits') {
+      spokenText = s.split('').map(c => { const n = parseInt(c,10); return isNaN(n) ? c.toUpperCase() : numberToWords(n); }).join(' ');
+    } else if (mode === 'pairs') {
+      if (s.length >= 4) { spokenText = `${numberToWords(s.slice(0,2))} ${numberToWords(s.slice(-2))}`; }
+      else spokenText = numberToWords(s);
+    }
+  }
+  const u = new SpeechSynthesisUtterance(spokenText);
+  u.lang = 'en-GB'; u.volume = 1; u.rate = 1; u.pitch = 1.2;
+  const voices = speechSynthesis.getVoices();
+  u.voice = voices.find(v => v.name === 'Google UK English Female') || voices.find(v => v.lang === 'en-GB') || voices[0];
+  speechSynthesis.speak(u);
+}
+
+/* ================================================================
+   NAVIGATION / ROUTING
+   ================================================================ */
+function navigate(mod) {
+  location.hash = mod;
+  activateModule(mod);
+}
+
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    navigate(item.dataset.module);
+    document.querySelector('.sidebar').classList.remove('open');
+    document.querySelector('.sidebar-overlay').classList.remove('open');
+  });
+});
+
+function activateModule(mod) {
+  document.querySelectorAll('.module').forEach(m => m.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const section = document.getElementById(mod);
+  const nav = document.querySelector(`.nav-item[data-module="${mod}"]`);
+  if (section) section.classList.add('active');
+  if (nav) nav.classList.add('active');
+  if (mod === 'dashboard') dashUpdateStats();
+  // Always pull fresh data from the shared DB when navigating to a tool
+  if (db._sb) {
+    if      (mod === 'wms-scanner')      wmsLoadFromDB();
+    else if (mod === 'invoice-scanner')  invLoadFromDB();
+    else if (mod === 'oreilly-scanner')  oscLoadFromDB();
+    else if (mod === 'order-picker')     opPicker.loadFromDB();
+    else if (mod === 'oreilly-picker')   orpkPicker.loadFromDB();
+    else if (mod === 'dsd-tracker')      dsdPicker.loadFromDB();
+    else if (mod === 'progress-tracker') ptLoadFromDB();
+    else if (mod === 'label-maker')      lmLoadFromDB();
+  }
+}
+
+function toggleSidebar() {
+  document.querySelector('.sidebar').classList.toggle('open');
+  document.querySelector('.sidebar-overlay').classList.toggle('open');
+}
+
+// Handle hash on load
+window.addEventListener('DOMContentLoaded', () => {
+  const hash = location.hash.replace('#', '');
+  if (hash && document.getElementById(hash)) activateModule(hash);
+  else activateModule('dashboard');
+  dashTick();
+});
+window.addEventListener('hashchange', () => {
+  const hash = location.hash.replace('#', '');
+  if (hash && document.getElementById(hash)) activateModule(hash);
+});
+
+/* ================================================================
+   CONFIRM MODAL (replaces native confirm/alert)
+   ================================================================ */
+let _modalResolveCallback = null;
+function showConfirm(title, body, okLabel, okClass) {
+  return new Promise(resolve => {
+    _modalResolveCallback = resolve;
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-body').textContent = body;
+    const btn = document.getElementById('confirm-ok-btn');
+    btn.textContent = okLabel || 'Confirm';
+    btn.className = 'btn ' + (okClass || 'btn-danger');
+    document.getElementById('confirm-modal').classList.add('open');
+  });
+}
+function modalResolve(result) {
+  document.getElementById('confirm-modal').classList.remove('open');
+  if (_modalResolveCallback) { _modalResolveCallback(result); _modalResolveCallback = null; }
+}
+
+/* ================================================================
+   DASHBOARD — Activity Log, Stats, Clock
+   ================================================================ */
+const activityLog = [];
+const dashStats = { scans: 0, labels: 0, picks: 0 };
+
+function logActivity(icon, message, color) {
+  activityLog.unshift({ icon, message, color: color || '#6366f1', time: Date.now() });
+  if (activityLog.length > 60) activityLog.pop();
+  dashUpdateStats();
+  dashRenderFeed();
+  const cnt = document.getElementById('sb-session-count');
+  if (cnt) cnt.textContent = `${activityLog.length} action${activityLog.length !== 1 ? 's' : ''}`;
+}
+
+function dashUpdateStats() {
+  const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  setEl('dash-s-scans', dashStats.scans);
+  setEl('dash-s-labels', dashStats.labels);
+  setEl('dash-s-picks', dashStats.picks);
+  setEl('dash-s-queue', lm && lm.queue ? lm.queue.length : 0);
+  setEl('dash-feed-count', activityLog.length);
+}
+
+function dashRenderFeed() {
+  const feed = document.getElementById('dash-feed');
+  if (!feed) return;
+  if (!activityLog.length) {
+    feed.innerHTML = '<div class="activity-empty"><i class="fas fa-satellite-dish" style="display:block;font-size:28px;margin-bottom:10px;opacity:.3"></i>No activity yet.<br>Start scanning to see live updates.</div>';
+    return;
+  }
+  feed.innerHTML = activityLog.slice(0, 25).map(entry => `
+    <div class="activity-item">
+      <div class="activity-dot" style="background:${entry.color}20;color:${entry.color}">
+        <i class="fas fa-${entry.icon}" style="font-size:11px"></i>
+      </div>
+      <div>
+        <div class="activity-msg">${entry.message}</div>
+        <div class="activity-time">${timeAgo(entry.time)}</div>
+      </div>
+    </div>`).join('');
+}
+
+function timeAgo(ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s/60)}m ago`;
+  return `${Math.floor(s/3600)}h ago`;
+}
+
+function dashTick() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const clockEl = document.getElementById('dash-clock');
+  if (clockEl) {
+    let hrs = now.getHours(); const ampm = hrs >= 12 ? 'PM' : 'AM';
+    hrs = hrs % 12; if (hrs === 0) hrs = 12;
+    clockEl.textContent = `${hrs}:${pad(now.getMinutes())}:${pad(now.getSeconds())} ${ampm}`;
+  }
+  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const dateEl = document.getElementById('dash-date');
+  if (dateEl) dateEl.textContent = `${days[now.getDay()]}, ${months[now.getMonth()]} ${now.getDate()}`;
+  const h = now.getHours();
+  const greetEl = document.getElementById('dash-greeting');
+  if (greetEl) greetEl.textContent = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  const shiftEl = document.getElementById('dash-shift');
+  if (shiftEl) shiftEl.textContent = '8:00 AM – 4:30 PM';
+  if (activityLog.length) dashRenderFeed();
+}
+setInterval(dashTick, 1000);
+
+/* ================================================================
+   MODULE: WMS SCANNER
+   ================================================================ */
+const wms = { boxes: [] };
+
+function wmsAddBox() {
+  const loc = document.getElementById('wms-location').value.trim();
+  const code = document.getElementById('wms-product').value.trim();
+  if (!loc || !code) { showMsg('wms-status','Location and Product Code required.','error'); return; }
+  hideMsg('wms-status');
+  wms.boxes.push({ productCode: code, qty: 1, warehouseLocation: loc });
+  wmsRefresh();
+  dashStats.scans++;
+  logActivity('barcode', `WMS: ${code} → ${loc}`, '#6366f1');
+  document.getElementById('wms-product').value = '';
+  document.getElementById('wms-product').focus();
+  db.addScan('wms', { productCode: code, warehouseLocation: loc, qty: 1 });
+}
+
+function wmsAddBatch() {
+  const loc = document.getElementById('wms-location').value.trim();
+  const batch = document.getElementById('wms-batch').value.trim();
+  if (!loc) { showMsg('wms-status','Location required.','error'); return; }
+  if (!batch) { showMsg('wms-status','No codes in batch.','error'); return; }
+  const codes = batch.split(/[\n,]+/).map(c=>c.trim()).filter(Boolean);
+  codes.forEach(c => {
+    wms.boxes.push({ productCode: c, qty: 1, warehouseLocation: loc });
+    db.addScan('wms', { productCode: c, warehouseLocation: loc, qty: 1 });
+  });
+  showMsg('wms-status',`Added ${codes.length} boxes.`,'success');
+  wmsRefresh();
+  document.getElementById('wms-batch').value = '';
+}
+
+function wmsUndo() {
+  if (!wms.boxes.length) { showMsg('wms-status','Nothing to undo.','error'); return; }
+  wms.boxes.pop(); wmsRefresh(); showMsg('wms-status','Last scan undone.','info');
+  db.undoLastScan('wms');
+}
+
+function wmsReset() {
+  wms.boxes = []; wmsRefresh();
+  document.getElementById('wms-location').value = '';
+  document.getElementById('wms-product').value = '';
+  document.getElementById('wms-batch').value = '';
+  showMsg('wms-status','All data reset.','info');
+  db.clearScans('wms');
+}
+
+async function wmsLoadFromDB() {
+  const rows = await db.loadScans('wms');
+  wms.boxes = db.scanRowsToBoxes(rows);
+  wmsRefresh();
+}
+
+function wmsRefresh() {
+  const grouped = {};
+  wms.boxes.forEach(b => { const k = `${b.productCode}|${b.warehouseLocation}`; grouped[k] = (grouped[k]||0)+b.qty; });
+  const tbody = document.getElementById('wms-table');
+  tbody.innerHTML = '';
+  for (const k in grouped) {
+    const [code, loc] = k.split('|');
+    tbody.innerHTML += `<tr><td>${code}</td><td>${grouped[k]}</td><td>${loc}</td></tr>`;
+  }
+  document.getElementById('wms-counter').textContent = `Total Scans: ${wms.boxes.length}`;
+}
+
+function wmsDownload() {
+  if (!wms.boxes.length) { showMsg('wms-status','No data to export.','error'); return; }
+  const grouped = {};
+  wms.boxes.forEach(b => { const k = `${b.productCode}|${b.warehouseLocation}`; grouped[k] = (grouped[k]||0)+b.qty; });
+  let csv = 'product_code,qty,warehouse_location,custom_field_1,measure,expiry_date,product_name\n';
+  for (const k in grouped) { const [code,loc] = k.split('|'); csv += `${code},${grouped[k]},${loc},,Case,,\n`; }
+  downloadBlob(csv, `wms_scan_${todayStr()}.csv`);
+}
+
+function wmsEmailAlex() {
+  if (!wms.boxes.length) { showMsg('wms-status','No data to send.','error'); return; }
+  const grouped = {};
+  wms.boxes.forEach(b => { const k = `${b.productCode}|${b.warehouseLocation}`; grouped[k] = (grouped[k]||0)+b.qty; });
+  let csv = 'product_code,qty,warehouse_location,custom_field_1,measure,expiry_date,product_name\n';
+  for (const k in grouped) { const [code,loc] = k.split('|'); csv += `${code},${grouped[k]},${loc},,Case,,\n`; }
+  emailAlex(csv, `wms_scan_${todayStr()}.csv`, `WMS Scan Export — ${todayStr()}`);
+}
+
+document.getElementById('wms-product').addEventListener('keypress', e => { if (e.key==='Enter') wmsAddBox(); });
+
+/* ================================================================
+   MODULE: INVOICE SCANNER
+   ================================================================ */
+const inv = { boxes: [] };
+
+function invAddBox() {
+  const loc = document.getElementById('inv-location').value.trim();
+  const part = document.getElementById('inv-part').value.trim();
+  const invoice = document.getElementById('inv-invoice').value.trim();
+  const qtyRaw = document.getElementById('inv-qty').value.trim();
+  const qty = parseInt(qtyRaw.replace(/[^0-9]/g,'')) || 1;
+  if (!loc || !part || !invoice || qty < 1) { showMsg('inv-status','All fields required.','error'); return; }
+  hideMsg('inv-status');
+  inv.boxes.push({ productCode: part, invoiceNumber: invoice, qty, warehouseLocation: loc });
+  invRefresh();
+  dashStats.scans++;
+  logActivity('file-invoice', `Invoice ${invoice}: ${part} (×${qty})`, '#6366f1');
+  document.getElementById('inv-part').value = '';
+  document.getElementById('inv-invoice').value = '';
+  document.getElementById('inv-qty').value = '';
+  document.getElementById('inv-part').focus();
+  db.addScan('invoice', { productCode: part, warehouseLocation: loc, invoiceNumber: invoice, qty });
+}
+
+function invUndo() {
+  if (!inv.boxes.length) { showMsg('inv-status','Nothing to undo.','error'); return; }
+  inv.boxes.pop(); invRefresh(); showMsg('inv-status','Last entry undone.','info');
+  db.undoLastScan('invoice');
+}
+
+function invReset() {
+  inv.boxes = []; invRefresh();
+  ['inv-location','inv-part','inv-invoice','inv-qty'].forEach(id => document.getElementById(id).value = '');
+  showMsg('inv-status','All data reset.','info');
+  db.clearScans('invoice');
+}
+
+async function invLoadFromDB() {
+  const rows = await db.loadScans('invoice');
+  inv.boxes = db.scanRowsToBoxes(rows);
+  invRefresh();
+}
+
+function invRefresh() {
+  const tbody = document.getElementById('inv-table');
+  tbody.innerHTML = '';
+  inv.boxes.forEach(b => { tbody.innerHTML += `<tr><td>${b.productCode}</td><td>${b.invoiceNumber}</td><td>${b.qty}</td><td>${b.warehouseLocation}</td></tr>`; });
+  document.getElementById('inv-counter').textContent = `Total Entries: ${inv.boxes.length}`;
+}
+
+function invDownload() {
+  if (!inv.boxes.length) { showMsg('inv-status','No data to export.','error'); return; }
+  let csv = 'product_code,qty,warehouse_location,custom_field_1,measure,expiry_date,product_name\n';
+  inv.boxes.forEach(b => { csv += `${b.productCode},${b.qty},${b.warehouseLocation},${b.invoiceNumber},Case,,\n`; });
+  downloadBlob(csv, `wms_scan_${todayStr()}.csv`);
+}
+
+function invEmailAlex() {
+  if (!inv.boxes.length) { showMsg('inv-status','No data to send.','error'); return; }
+  let csv = 'product_code,qty,warehouse_location,custom_field_1,measure,expiry_date,product_name\n';
+  inv.boxes.forEach(b => { csv += `${b.productCode},${b.qty},${b.warehouseLocation},${b.invoiceNumber},Case,,\n`; });
+  emailAlex(csv, `invoice_scan_${todayStr()}.csv`, `Invoice Scan Export — ${todayStr()}`);
+}
+
+// Enter key focus shifting
+document.getElementById('inv-part').addEventListener('keypress', e => { if (e.key==='Enter' && e.target.value.trim()) { e.preventDefault(); document.getElementById('inv-invoice').focus(); } });
+document.getElementById('inv-invoice').addEventListener('keypress', e => { if (e.key==='Enter' && e.target.value.trim()) { e.preventDefault(); document.getElementById('inv-qty').focus(); } });
+document.getElementById('inv-qty').addEventListener('keypress', e => { if (e.key==='Enter') { e.preventDefault(); invAddBox(); } });
+
+/* ================================================================
+   MODULE: O'REILLY SCANNER
+   ================================================================ */
+const osc = { scans: [], totalScans: 0 };
+
+// Part-to-UPC mapping
+const partToUPCMap = {
+  'K061195':'8906156990016','K061203':'8906156990023','K061230':'8906156990030','K061247':'8906156990047',
+  'K061251':'8906156990054','K061265':'8906156990061','K081196':'8906156990078','K081207':'8906156990085',
+  'K081213':'8906156990092','K081243':'8906156990115','K081244':'8906156990122','K081253':'8906156990139',
+  'K081264':'8906156990146','K081265':'8906156990153','K040420':'8906156990160','K040305':'8906156990177',
+  'K040332':'8906156990184','K040343':'8906156990191','K040345':'8906156990207','K040347':'8906156990214',
+  'K040350':'8906156990221','K040372':'8906156990238','K040378':'8906156990245','K050435':'8906156990252',
+  'K060408':'8906156990269','K060435':'8906156990276','K060480':'8906156990283','K060563':'8906156990290',
+  'K060640':'8906156990306','K060739':'8906156990313','K060795':'8906156990320','K060840':'8906156990337',
+  'K060868':'8906156990344','K060874':'8906156990351','K060875':'8906156990368','K060878':'8906156990375',
+  'K060882':'8906156990382','K060905':'8906156990399','K060908':'8906156990405','K060913':'8906156990412',
+  'K060919':'8906156990429','K060923':'8906156990436','K060930':'8906156990443','K060935':'8906156990450',
+  'K060938':'8906156990467','K060950':'8906156990474','K060956':'8906156990481','K060960':'8906156990498',
+  'K060966':'8906156990504','K060970':'8906156990511','K060975':'8906156990528','K060990':'8906156990535',
+  'K061015':'8906156990542','K061025':'8906156990559','K061031':'8906156990566','K061093':'8906156990573',
+  'K070701':'8906156990580','K070763':'8906156990597','K070834':'8906156990603','K070975':'8906156990610',
+  'K071013':'8906156990627','K080991':'8906156990634','K030196SF':'8906156990658','K030293SF':'8906156990665',
+  'K030303SF':'8906156990672','K030309SF':'8906156990689','K030315SF':'8906156990696','K030471':'8906156990702',
+  'K040317SF':'8906156990719','K040337SF':'8906156990726','K040338SF':'8906156990733','K040346SF':'8906156990740',
+  'K040352SF':'8906156990757','K040353':'8906156990764','K040355SF':'8906156990771','K040359SF':'8906156990788',
+  'K040398':'8906156990795','K040413':'8906156990801','K040438':'8906156990818','K040465':'8906156990825',
+  'K040488':'8906156990832','K040533':'8906156990849','K040535':'8906156990856','K040570':'8906156990863',
+  'K050344':'8906156990870','K050345':'8906156990887','K050364':'8906156990894','K050402':'8906156990900',
+  'K050404':'8906156990917','K050418':'8906156990924','K050551':'8906156990931','K050694':'8906156990948',
+  'K050744':'8906156990955','K060352':'8906156990962','K060378':'8906156990979','K060380':'8906156990986',
+  'K060388':'8906156990993','K060392SF':'8906156991006','K060394':'8906156991013','K060396A':'8906156991020',
+  'K060397SF':'8906156991037','K060407':'8906156991044','K060409':'8906156991051','K060439':'8906156991068',
+  'K060448':'8906156991075','K060450':'8906156991082','K060461':'8906156991099','K060468':'8906156991105',
+  'K060470':'8906156991112','K060473':'8906156991129','K060478':'8906156991136','K060486':'8906156991143',
+  'K060494':'8906156991150','K060499':'8906156991167','K060544':'8906156991174','K060547':'8906156991181',
+  'K060555':'8906156991198','K060609':'8906156991204','K060658':'8906156991211','K060663':'8906156991228',
+  'K060664A':'8906156991235','K060667SF':'8906156991242','K060700':'8906156991259','K060711':'8906156991266',
+  'K060711A':'8906156991273','K060714':'8906156991280','K060730':'8906156991297','K060744':'8906156991303',
+  'K060763':'8906156991310','K060771':'8906156991327','K060772':'8906156991334','K060780':'8906156991341',
+  'K060785':'8906156991358','K060790':'8906156991365','K060815':'8906156991372','K060820':'8906156991389',
+  'K060822':'8906156991396','K060824':'8906156991402','K060837':'8906156991419','K060841':'8906156991426',
+  'K060850':'8906156991433','K060860':'8906156991440','K060864':'8906156991457','K060866':'8906156991464',
+  'K060876':'8906156991471','K060880A':'8906156991488','K060885':'8906156991495','K060888':'8906156991501',
+  'K060900':'8906156991518','K060916A':'8906156991525','K060945':'8906156991532','K060947':'8906156991549',
+  'K060952':'8906156991556','K060997':'8906156991563','K061010':'8906156991570','K061016':'8906156991587',
+  'K061058':'8906156991594','K070407':'8906156991617','K070443':'8906156991624','K070566':'8906156991631',
+  'K070610':'8906156991631','K070663':'8906156991655','K070669':'8906156991662','K070683':'8906156991679',
+  'K070685':'8906156991686','K070690':'8906156991693','K070694':'8906156991709','K070721':'8906156991716',
+  'K070750':'8906156991723','K070795':'8906156991730','K070822':'8906156991747','K070835':'8906156991754',
+  'K070852':'8906156991761','K070971':'8906156991778','K080810':'8906156991785','K080865':'8906156991792',
+  'K080948':'8906156991808','K060477A':'8906156991853','K050529':'8906156991860','K040413A':'8906156991877',
+  'K060694':'8906156991884','K030266SF':'8906156991891','K070873':'8906156991907'
+};
+const oscSpecialPart = 'K081223';
+const oscUpcOptions = ['8906156990108', '8906156990641'];
+
+function oscGetUPC(partCode) {
+  if (partCode === oscSpecialPart) {
+    const choice = prompt(`Part ${partCode} has two UPCs:\n1. ${oscUpcOptions[0]}\n2. ${oscUpcOptions[1]}\nEnter 1 or 2:`);
+    if (choice === '1') return oscUpcOptions[0];
+    if (choice === '2') return oscUpcOptions[1];
+    return null;
+  }
+  return partToUPCMap[partCode] || partCode;
+}
+
+function oscAddBox() {
+  const loc = document.getElementById('osc-location').value.trim();
+  const part = document.getElementById('osc-part').value.trim();
+  if (!loc || !part) { showMsg('osc-status','Location and Part Number required.','error'); return; }
+  const upc = oscGetUPC(part);
+  if (!upc) return;
+  osc.scans.push({ warehouseLocation: loc, productCode: upc });
+  osc.totalScans++;
+  oscRefresh();
+  dashStats.scans++;
+  logActivity('qrcode', `O'Reilly: ${part} → ${upc.slice(-6)}`, '#6366f1');
+  document.getElementById('osc-part').value = '';
+  hideMsg('osc-status');
+  db.addScan('oreilly-scanner', { productCode: upc, warehouseLocation: loc });
+}
+
+function oscAddBatch() {
+  const loc = document.getElementById('osc-location').value.trim();
+  const batch = document.getElementById('osc-batch').value.trim();
+  if (!loc) { showMsg('osc-status','Location required.','error'); return; }
+  const codes = batch.split('\n').map(c=>c.trim()).filter(Boolean);
+  let added = 0;
+  codes.forEach(c => { const upc = oscGetUPC(c); if (upc) { osc.scans.push({ warehouseLocation: loc, productCode: upc }); added++; db.addScan('oreilly-scanner', { productCode: upc, warehouseLocation: loc }); } });
+  osc.totalScans += added;
+  oscRefresh();
+  document.getElementById('osc-batch').value = '';
+  showMsg('osc-status',`Added ${added} boxes.`,'success');
+}
+
+function oscUndo() {
+  if (!osc.scans.length) return;
+  osc.scans.pop(); osc.totalScans--;
+  oscRefresh();
+  db.undoLastScan('oreilly-scanner');
+}
+
+function oscReset() {
+  osc.scans = []; osc.totalScans = 0;
+  oscRefresh();
+  db.clearScans('oreilly-scanner');
+}
+
+async function oscLoadFromDB() {
+  const rows = await db.loadScans('oreilly-scanner');
+  osc.scans = db.scanRowsToBoxes(rows);
+  osc.totalScans = osc.scans.length;
+  oscRefresh();
+}
+
+function oscRefresh() {
+  const consolidated = {};
+  osc.scans.forEach(s => {
+    const k = `${s.productCode}-${s.warehouseLocation}`;
+    if (!consolidated[k]) consolidated[k] = { ...s, qty: 0 };
+    consolidated[k].qty++;
+  });
+  const tbody = document.getElementById('osc-table');
+  tbody.innerHTML = '';
+  Object.values(consolidated).forEach(s => {
+    tbody.innerHTML += `<tr><td>${s.productCode}</td><td>${s.qty}</td><td>${s.warehouseLocation}</td></tr>`;
+  });
+  document.getElementById('osc-counter').textContent = `Total Scans: ${osc.totalScans}`;
+}
+
+function oscDownload() {
+  if (!osc.scans.length) { showMsg('osc-status','No data.','error'); return; }
+  const consolidated = {};
+  osc.scans.forEach(s => {
+    const k = `${s.productCode}-${s.warehouseLocation}`;
+    if (!consolidated[k]) consolidated[k] = { ...s, qty: 0 };
+    consolidated[k].qty++;
+  });
+  let csv = 'product_code,qty,warehouse_location,custom_field_1,measure,expiry_date,product_name\n';
+  Object.values(consolidated).forEach(s => { csv += `${s.productCode},${s.qty},${s.warehouseLocation},,Case,,\n`; });
+  downloadBlob(csv, `wms_scan_${todayStr()}.csv`);
+}
+
+function oscEmailAlex() {
+  if (!osc.scans.length) { showMsg('osc-status','No data to send.','error'); return; }
+  const consolidated = {};
+  osc.scans.forEach(s => {
+    const k = `${s.productCode}-${s.warehouseLocation}`;
+    if (!consolidated[k]) consolidated[k] = { ...s, qty: 0 };
+    consolidated[k].qty++;
+  });
+  let csv = 'product_code,qty,warehouse_location,custom_field_1,measure,expiry_date,product_name\n';
+  Object.values(consolidated).forEach(s => { csv += `${s.productCode},${s.qty},${s.warehouseLocation},,Case,,\n`; });
+  emailAlex(csv, `oreilly_scan_${todayStr()}.csv`, `O'Reilly Scan Export — ${todayStr()}`);
+}
+
+document.getElementById('osc-part').addEventListener('keypress', e => { if (e.key==='Enter') oscAddBox(); });
+
+/* ================================================================
+   PICKER FACTORY - Creates Order Picker, O'Reilly Picker, DSD Tracker
+   ================================================================ */
+function createPicker(prefix, voiceMode, storageKey) {
+  const state = { parts: [], pickedParts: [], history: [], _localFileLoaded: false };
+
+  const el = (id) => document.getElementById(`${prefix}-${id}`);
+  const lsKey = `hub_${storageKey}`;
+  const lsPickedKey = `hub_${storageKey}_picked`;
+
+  function save() {
+    try {
+      localStorage.setItem(lsKey, JSON.stringify(state.parts));
+      localStorage.setItem(lsPickedKey, JSON.stringify(state.pickedParts));
+    } catch(e) {}
+    db.savePickList(storageKey, state.parts, state.pickedParts);
+  }
+
+  function load() {
+    try {
+      const s = localStorage.getItem(lsKey);
+      if (s) { const p = JSON.parse(s); if (Array.isArray(p)) state.parts = p; }
+      const sp = localStorage.getItem(lsPickedKey);
+      if (sp) { const p = JSON.parse(sp); if (Array.isArray(p)) state.pickedParts = p; }
+      updateUI();
+    } catch(e) {}
+  }
+
+  async function loadFromDB() {
+    /* Once a file has been loaded locally in this session,
+       never let a subscription overwrite it — the local
+       file is the source of truth until the user clears data */
+    if (state._localFileLoaded) return;
+    const row = await db.loadPickList(storageKey);
+    if (row) {
+      const dbParts = Array.isArray(row.parts) ? row.parts : [];
+      const dbPicked = Array.isArray(row.picked_parts) ? row.picked_parts : [];
+      state.parts = dbParts;
+      state.pickedParts = dbPicked;
+      updateUI(true);   // skipSave=true — don't re-save what we just loaded
+    }
+  }
+
+  function setStatus(msg, color, text) {
+    const light = el('light');
+    const msgEl = el('status-msg');
+    msgEl.textContent = msg;
+    light.style.backgroundColor = color;
+    light.style.boxShadow = color === '#e2e8f0' ? 'none' : `0 0 20px ${color}80`;
+    light.textContent = text || '';
+    light.style.color = color === '#e2e8f0' ? '#2d3748' : '#fff';
+    light.classList.add('pulse');
+    setTimeout(() => light.classList.remove('pulse'), 1500);
+  }
+
+  function updateUI(skipSave) {
+    const remainQty = state.parts.reduce((s,p) => s + (p.quantity||0), 0);
+    const pickedQty = state.pickedParts.reduce((s,p) => s + (p.quantity||0), 0);
+    const totalQty = remainQty + pickedQty;
+    el('counter').textContent = `Total Quantity: ${remainQty} (Entries: ${state.parts.length})`;
+
+    // Update progress ring
+    const progressWrap = el('progress');
+    if (progressWrap) {
+      const hasData = totalQty > 0;
+      progressWrap.style.display = hasData ? 'flex' : 'none';
+      if (hasData) {
+        const pct = Math.round(pickedQty / totalQty * 100);
+        const circumference = 213.63;
+        const offset = circumference - (pct / 100) * circumference;
+        const ringBar = el('ring-bar');
+        ringBar.style.strokeDashoffset = offset;
+        ringBar.style.stroke = pct === 100 ? '#10b981' : pct > 0 ? '#6366f1' : '#e2e8f0';
+        el('ring-pct').textContent = `${pct}%`;
+        el('ring-pct').style.color = pct === 100 ? '#10b981' : '#334155';
+        el('prog-picked').textContent = pickedQty;
+        el('prog-remaining').textContent = remainQty;
+        el('prog-total').textContent = totalQty;
+      }
+    }
+
+    const ul = el('parts').querySelector('ul');
+    ul.innerHTML = '';
+    const sorted = [...state.parts].sort((a, b) => a.partNumber.localeCompare(b.partNumber));
+    sorted.forEach(p => {
+      const li = document.createElement('li');
+      li.textContent = `${p.partNumber} - Order: ${p.orderNumber} (Qty: ${p.quantity})`;
+      ul.appendChild(li);
+    });
+    el('dl-remaining').style.display = state.parts.length ? 'inline-flex' : 'none';
+    el('dl-picked').style.display = state.pickedParts.length ? 'inline-flex' : 'none';
+    el('delete-btn').style.display = state.parts.length ? 'inline-flex' : 'none';
+    el('undo-btn').style.display = state.history.length ? 'inline-flex' : 'none';
+    if (!skipSave) save();
+  }
+
+  function handleFile(file) {
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+
+    if (ext === 'xlsx' || ext === 'xls') {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const wb = XLSX.read(e.target.result, { type: 'array' });
+          // Use "Sheet1" which contains the consolidated data
+          const targetSheet = wb.SheetNames.find(sn => sn.toLowerCase() === 'sheet1') || wb.SheetNames[wb.SheetNames.length - 1];
+          if (!wb.Sheets[targetSheet]) throw new Error('Could not find Sheet1.');
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[targetSheet], { header: 1, defval: null, raw: false });
+          const headerRow = rows.find(r => r && r.some(c => String(c || '').toLowerCase().includes('part') || String(c || '').toLowerCase().includes('po#')));
+          if (!headerRow) throw new Error('Could not find header row.');
+          const hdr = headerRow.map(c => String(c || '').trim().toLowerCase());
+          const headerIdx = rows.indexOf(headerRow);
+
+          // Map columns - support DSD Excel format (Vendor Part#, PO#, Ship Qty) and standard CSV format (Part Number, Order Number, Quantity)
+          let partCol = hdr.findIndex(h => h === 'vendor part#' || h === 'vendor part');
+          if (partCol === -1) partCol = hdr.findIndex(h => h === 'part number');
+          let orderCol = hdr.findIndex(h => h === 'po#' || h === 'order');
+          if (orderCol === -1) orderCol = hdr.findIndex(h => h === 'order number');
+          let qtyCol = hdr.findIndex(h => h === 'ship qty' || h === 'sum of ship qty');
+          if (qtyCol === -1) qtyCol = hdr.findIndex(h => h === 'quantity');
+
+          if (partCol === -1 || orderCol === -1 || qtyCol === -1) throw new Error(`Could not map columns. Found headers: ${hdr.join(', ')}`);
+
+          state.parts = [];
+          for (let i = headerIdx + 1; i < rows.length; i++) {
+            const r = rows[i];
+            if (!r) continue;
+            const pn = String(r[partCol] || '').trim();
+            const on = String(r[orderCol] || '').trim();
+            const qty = parseInt(r[qtyCol], 10);
+            if (pn && on && !isNaN(qty) && qty > 0 && pn.toLowerCase() !== 'grand total') {
+              state.parts.push({ partNumber: pn.toUpperCase(), orderNumber: on, quantity: qty });
+            }
+          }
+          if (!state.parts.length) throw new Error('No valid data found in Excel.');
+          state.history = []; state.pickedParts = [];
+          state._localFileLoaded = true;
+          updateUI();
+          setStatus(`Excel loaded: ${state.parts.length} items from "${targetSheet}".`, '#38a169');
+        } catch(err) { setStatus(err.message, '#ff6b6b'); }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const lines = e.target.result.split('\n').filter(l => l.trim());
+          if (!lines.length) throw new Error('Empty file.');
+          const header = parseCSVLine(lines[0].toLowerCase());
+          if (!['part number','order number','quantity'].every(h => header.includes(h))) throw new Error('Invalid header. Need: Part Number, Order Number, Quantity');
+          state.parts = [];
+          for (let i = 1; i < lines.length; i++) {
+            const [pn, on, q] = parseCSVLine(lines[i]);
+            const qty = parseInt(q, 10);
+            if (pn && on && !isNaN(qty) && qty > 0) state.parts.push({ partNumber: pn.toUpperCase(), orderNumber: on, quantity: qty });
+          }
+          if (!state.parts.length) throw new Error('No valid data.');
+          state.history = []; state.pickedParts = [];
+          state._localFileLoaded = true;
+          updateUI();
+          setStatus('File uploaded successfully.', '#38a169');
+        } catch(err) { setStatus(err.message, '#ff6b6b'); }
+      };
+      reader.readAsText(file);
+    }
+  }
+
+  function check() {
+    const input = el('input');
+    const pn = input.value.trim().toUpperCase();
+    if (!pn) { setStatus('Enter a part number.', '#e2e8f0'); return; }
+    if (!state.parts.length) { setStatus('No parts loaded.', '#ff6b6b', 'X'); speak('No parts', voiceMode); input.value = ''; return; }
+    const matches = state.parts.filter(p => p.partNumber === pn);
+    if (matches.length > 0) {
+      state.history.push(state.parts.map(p => ({...p})));
+      const m = matches[0];
+      const idx = state.parts.findIndex(p => p.partNumber === pn && p.orderNumber === m.orderNumber);
+      if (idx !== -1) {
+        state.pickedParts.push({ partNumber: m.partNumber, orderNumber: m.orderNumber, quantity: 1, timestamp: new Date().toISOString() });
+        if (m.quantity > 1) state.parts[idx].quantity--;
+        else state.parts.splice(idx, 1);
+        setStatus(matches.length > 1 ? `Found (${matches.length} matches, processed ${m.orderNumber}).` : 'Found and processed.', '#38a169', m.orderNumber);
+        updateUI();
+        speak(m.orderNumber, voiceMode);
+        dashStats.picks++;
+        logActivity('hand-pointer', `Picked: ${pn} → Order ${m.orderNumber}`, '#f59e0b');
+      }
+    } else {
+      setStatus('Part not found.', '#ff6b6b', 'X');
+      speak('No', voiceMode);
+    }
+    input.value = '';
+    el('check-btn').disabled = true;
+  }
+
+  function deleteData() {
+    state.history.push(state.parts.map(p => ({...p})));
+    state.parts = []; state.pickedParts = [];
+    state._localFileLoaded = false;
+    setStatus('Data cleared.', '#e2e8f0');
+    updateUI();
+  }
+
+  function undo() {
+    if (state.history.length) { state.parts = state.history.pop().map(p => ({...p})); setStatus('Undone.', '#e2e8f0'); updateUI(); }
+  }
+
+  function dlCSV(data, filename) {
+    const csv = 'Part Number,Order Number,Quantity,Timestamp\n' + data.map(p => `"${p.partNumber}","${p.orderNumber}",${p.quantity},"${p.timestamp||''}"`).join('\n');
+    downloadBlob(csv, filename);
+  }
+
+  // Setup drag/drop
+  const dropzone = el('dropzone');
+  const fileInput = el('file');
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', e => { e.preventDefault(); dropzone.classList.remove('dragover'); });
+  dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.remove('dragover'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+  fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+
+  // Input events
+  el('input').addEventListener('keypress', e => { if (e.key === 'Enter') check(); });
+  el('input').addEventListener('input', () => { el('check-btn').disabled = !el('input').value.trim(); });
+
+  load();
+
+  return { check, deleteData, undo, loadFromDB, dlRemaining: () => dlCSV(state.parts, `remaining_parts_${todayStr()}.csv`), dlPicked: () => dlCSV(state.pickedParts, `picked_parts_${todayStr()}.csv`) };
+}
+
+// Create the three picker instances
+const opPicker = createPicker('op', null, 'orderPicker');
+function opCheck() { opPicker.check(); }
+function opDelete() { opPicker.deleteData(); }
+function opUndo() { opPicker.undo(); }
+function opDownloadRemaining() { opPicker.dlRemaining(); }
+function opDownloadPicked() { opPicker.dlPicked(); }
+
+const orpkPicker = createPicker('orpk', 'digits', 'oreillyPicker');
+function orpkCheck() { orpkPicker.check(); }
+function orpkDelete() { orpkPicker.deleteData(); }
+function orpkUndo() { orpkPicker.undo(); }
+function orpkDownloadRemaining() { orpkPicker.dlRemaining(); }
+function orpkDownloadPicked() { orpkPicker.dlPicked(); }
+
+const dsdPicker = createPicker('dsd', 'pairs', 'dsdTracker');
+function dsdCheck() { dsdPicker.check(); }
+function dsdDelete() { dsdPicker.deleteData(); }
+function dsdUndo() { dsdPicker.undo(); }
+function dsdDownloadRemaining() { dsdPicker.dlRemaining(); }
+function dsdDownloadPicked() { dsdPicker.dlPicked(); }
+
+/* ================================================================
+   MODULE: A&I CONVERTER
+   ================================================================ */
+let aiResultData = [];
+
+function aiReset() {
+  aiResultData = [];
+  document.getElementById('ai-list').value = '';
+  document.getElementById('ai-legend').value = '';
+  document.getElementById('ai-dl-btn').disabled = true;
+  hideMsg('ai-status');
+}
+
+function aiProcess() {
+  const listFile = document.getElementById('ai-list').files[0];
+  const legendFile = document.getElementById('ai-legend').files[0];
+  if (!listFile || !legendFile) { showMsg('ai-status','Upload both files.','error'); return; }
+  const legendReader = new FileReader();
+  legendReader.onload = (e) => {
+    const legend = aiParseCSV(e.target.result);
+    const sizeToUpc = {};
+    legend.data.forEach(r => { sizeToUpc[r.SIZE] = r.UPC || 'No UPC Found'; });
+    const listReader = new FileReader();
+    listReader.onload = (e2) => {
+      const list = aiParseCSV(e2.target.result);
+      aiResultData = list.data.map(r => ({
+        'Invoice No': r['Invoice No']||'', 'Pallet Ref': r['Pallet Ref']||'',
+        'Size': r['Size']||'', 'UPC': sizeToUpc[r['Size']]||'No UPC Found'
+      }));
+      const tbody = document.getElementById('ai-table');
+      tbody.innerHTML = '';
+      aiResultData.slice(0, 20).forEach(r => {
+        tbody.innerHTML += `<tr><td>${r['Invoice No']}</td><td>${r['Pallet Ref']}</td><td>${r['Size']}</td><td>${r['UPC']}</td></tr>`;
+      });
+      document.getElementById('ai-dl-btn').disabled = false;
+      showMsg('ai-status',`Processed ${aiResultData.length} rows.`,'success');
+    };
+    listReader.readAsText(listFile);
+  };
+  legendReader.readAsText(legendFile);
+}
+
+function aiParseCSV(content) {
+  const rows = content.split('\n').filter(r => r.trim());
+  const headers = rows[0].split(',').map(h => h.trim());
+  const data = rows.slice(1).map(row => {
+    const vals = row.split(',').map(v => v.trim());
+    const obj = {};
+    headers.forEach((h,i) => { obj[h] = vals[i]||''; });
+    return obj;
+  });
+  return { headers, data };
+}
+
+function aiDownload() {
+  if (!aiResultData.length) return;
+  const headers = ['Invoice No','Pallet Ref','Size','UPC'];
+  let csv = headers.join(',') + '\n';
+  aiResultData.forEach(r => { csv += headers.map(h => `"${(r[h]||'').replace(/"/g,'""')}"`).join(',') + '\n'; });
+  downloadBlob(csv, 'list_with_upc.csv');
+}
+
+/* ================================================================
+   MODULE: PACKING LIST CONVERTER
+   ================================================================ */
+const plc = { wb1: null, wb2: null, fname1: null, fname2: null, csvContent: null, outputRows: [], huntlistData: null };
+
+// File handling
+document.getElementById('plc-file1').addEventListener('change', e => { if (e.target.files[0]) plcLoadFile(e.target.files[0], 1); });
+document.getElementById('plc-file2').addEventListener('change', e => { if (e.target.files[0]) plcLoadFile(e.target.files[0], 2); });
+
+// Drag and drop
+['plc-zone1','plc-zone2'].forEach((id, i) => {
+  const zone = document.getElementById(id);
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('dragover'); if (e.dataTransfer.files[0]) plcLoadFile(e.dataTransfer.files[0], i+1); });
+});
+
+function plcLoadFile(file, n) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+      if (!wb.SheetNames.some(s => /^barcode/i.test(s.trim()))) { showMsg('plc-status','No Barcode sheet found.','error'); return; }
+      plc['wb'+n] = wb;
+      plc['fname'+n] = file.name;
+      document.getElementById('plc-fname'+n).textContent = file.name;
+      document.getElementById('plc-zone'+n).classList.add('loaded');
+      document.getElementById('plc-convert-btn').disabled = !(plc.wb1 || plc.wb2);
+    } catch(err) { showMsg('plc-status','Error reading file: '+err.message,'error'); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function plcExtractRows(wb, label) {
+  const sheets = wb.SheetNames.filter(s => /^barcode/i.test(s.trim()));
+  const results = [];
+  sheets.forEach(sn => {
+    const raw = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null, raw: false });
+    for (let i = 1; i < raw.length; i++) {
+      const r = raw[i];
+      if (!r || r.every(v => v===null||v===''||v===undefined)) continue;
+      const upc = r[5], packNo = r[0];
+      if (!upc && !packNo) continue;
+      const dcRaw = r[8] ? String(r[8]).trim() : '';
+      const dcMatch = dcRaw.match(/DC#(\d+)\s+(.+)/i);
+      const dc = dcMatch ? dcMatch[2].trim() : dcRaw;
+      const number = dcMatch ? dcMatch[1] : '';
+      const fmtNum = v => { if (!v && v !== 0) return ''; const n = parseFloat(v); return isNaN(n) ? String(v) : n.toFixed(2); };
+      let dateStr = '';
+      if (r[7]) { const d = r[7]; if (d instanceof Date) { dateStr = `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}/${d.getFullYear()}`; } else dateStr = String(d); }
+      results.push({ packNo, netWt: fmtNum(r[1]), grsWt: fmtNum(r[2]), mat: r[3]||'', qty: r[4]||'', upc: r[5]||'', orderNo: r[6]||'', date: dateStr, dc, number, _source: label });
+    }
+  });
+  return results;
+}
+
+function plcConvert() {
+  const rows1 = plc.wb1 ? plcExtractRows(plc.wb1, plc.fname1) : [];
+  const rows2 = plc.wb2 ? plcExtractRows(plc.wb2, plc.fname2) : [];
+  const combined = [...rows1, ...rows2];
+  if (!combined.length) { showMsg('plc-status','No data found.','error'); return; }
+  combined.forEach((r,i) => r.packNo = i+1);
+  plc.outputRows = combined;
+
+  const csvEsc = v => { if (v===null||v===undefined) return ''; const s = String(v); return (s.includes(',')||s.includes('"')||s.includes('\n')) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  const header = ['Packing No','Net Wt','Grs Wt','Mat','Qty','UPC','Order No','Date','DC','Number'];
+  const lines = [header.join(',')];
+  combined.forEach(r => lines.push([r.packNo,r.netWt,r.grsWt,csvEsc(r.mat),r.qty,r.upc,csvEsc(r.orderNo),r.date,csvEsc(r.dc),r.number].join(',')));
+  plc.csvContent = lines.join('\r\n');
+
+  // Stats
+  document.getElementById('plc-stats').style.display = 'flex';
+  document.getElementById('plc-s1').textContent = rows1.length;
+  document.getElementById('plc-s2').textContent = rows2.length;
+  document.getElementById('plc-st').textContent = combined.length;
+  document.getElementById('plc-sd').textContent = new Set(combined.map(r=>r.dc)).size;
+
+  // Preview
+  const cols = ['#','Net Wt','Grs Wt','Mat','Qty','UPC','Order No','Date','DC','Number'];
+  let html = '<thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
+  combined.slice(0,15).forEach(r => { html += `<tr><td>${r.packNo}</td><td>${r.netWt}</td><td>${r.grsWt}</td><td>${r.mat}</td><td>${r.qty}</td><td>${r.upc}</td><td>${r.orderNo}</td><td>${r.date}</td><td>${r.dc}</td><td>${r.number}</td></tr>`; });
+  html += '</tbody>';
+  document.getElementById('plc-preview').innerHTML = html;
+  document.getElementById('plc-preview-card').style.display = 'block';
+  document.getElementById('plc-dl-btn').style.display = 'inline-flex';
+
+  // Huntlist
+  const upcMap = {};
+  combined.forEach(r => { const u = String(r.upc||'').trim(); if (u) upcMap[u] = (upcMap[u]||0)+1; });
+  plc.huntlistData = upcMap;
+  const upcCount = Object.keys(upcMap).length;
+  const totalQty = Object.values(upcMap).reduce((a,b) => a+b, 0);
+  document.getElementById('plc-hunt-info').textContent = `${upcCount} unique UPCs - ${totalQty} total boxes across all DCs`;
+  document.getElementById('plc-huntlist-card').style.display = 'block';
+
+  showMsg('plc-status',`Done! ${combined.length} rows processed.`,'success');
+}
+
+function plcDownload() { if (plc.csvContent) downloadBlob(plc.csvContent, `OREILLY_${todayStr().replace(/-/g,'')}.csv`); }
+
+function plcDownloadHuntlist() {
+  if (!plc.huntlistData) return;
+  const lines = ['Part Number,SEA,Quantity'];
+  Object.entries(plc.huntlistData).sort(([a],[b]) => a.localeCompare(b)).forEach(([upc,qty]) => lines.push(`${upc},SEA,${qty}`));
+  downloadBlob(lines.join('\r\n'), `Huntlist_${todayStr().replace(/-/g,'')}.csv`);
+}
+
+function plcReset() {
+  plc.wb1 = plc.wb2 = plc.fname1 = plc.fname2 = plc.csvContent = plc.huntlistData = null;
+  plc.outputRows = [];
+  ['plc-zone1','plc-zone2'].forEach(id => document.getElementById(id).classList.remove('loaded'));
+  ['plc-fname1','plc-fname2'].forEach(id => document.getElementById(id).textContent = '');
+  document.querySelectorAll('#packing-converter input[type="file"]').forEach(el => el.value = '');
+  document.getElementById('plc-convert-btn').disabled = true;
+  ['plc-dl-btn','plc-preview-card','plc-huntlist-card'].forEach(id => document.getElementById(id).style.display = 'none');
+  document.getElementById('plc-stats').style.display = 'none';
+  hideMsg('plc-status');
+}
+
+/* ================================================================
+   MODULE: PAYPA MAKER
+   ================================================================ */
+const paypa = { rawData: [], parsedData: [] };
+const paypaLegend = [
+  { prefix:'10',destination:'ONTARIO',color:'GREY' },
+  { prefix:'11',destination:'LAVONIA',color:'RED' },
+  { prefix:'20',destination:'HAZELTON',color:'BLUE' },
+  { prefix:'22',destination:'LEXINGTON',color:'LIGHT YELLOW' },
+  { prefix:'33',destination:'DANVILLE',color:'ORANGE' },
+  { prefix:'40',destination:'KENT',color:'NEON YELLOW' },
+  { prefix:'49',destination:'CHOWCHILLA',color:'GOLD' },
+  { prefix:'55',destination:'TERRELL',color:'GREEN' },
+  { prefix:'66',destination:'OCALA',color:'LIGHT PURPLE' },
+  { prefix:'77',destination:'TOLLESON',color:'WHITE' },
+  { prefix:'88',destination:'PASCO',color:'PINK' },
+  { prefix:'99',destination:'ZANESVILLE',color:'PURPLE' }
+];
+
+function paypaGetDest(po) { const e = paypaLegend.find(l => po.toString().startsWith(l.prefix)); return e ? e.destination : 'UNKNOWN'; }
+function paypaGetColor(po) { const e = paypaLegend.find(l => po.toString().startsWith(l.prefix)); return e ? e.color : 'UNKNOWN'; }
+
+function paypaReset() {
+  paypa.rawData = []; paypa.parsedData = [];
+  document.getElementById('paypa-file').value = '';
+  document.getElementById('paypa-paste').value = '';
+  document.getElementById('paypa-dl-btn').style.display = 'none';
+  document.getElementById('paypa-table-card').style.display = 'none';
+  document.getElementById('paypa-table').innerHTML = '';
+  hideMsg('paypa-status');
+}
+
+function paypaHandleFile() {
+  const file = document.getElementById('paypa-file').files[0];
+  if (!file) return;
+  Papa.parse(file, {
+    header: true, skipEmptyLines: true,
+    complete: (r) => {
+      paypa.rawData = r.data.map(row => ({ 'PO Number': (row['PO Number']||'').trim(), 'Quantity': parseInt(row['Quantity'])||0 }));
+      paypaUpdate();
+    }
+  });
+}
+
+function paypaHandlePaste() {
+  const text = document.getElementById('paypa-paste').value;
+  if (!text) { showMsg('paypa-status','Paste some data first.','error'); return; }
+  Papa.parse(text, {
+    header: true, skipEmptyLines: true,
+    complete: (r) => {
+      const headers = r.meta.fields;
+      if (!headers.includes('PO Number') || !headers.includes('Quantity')) {
+        paypa.rawData = r.data.map(row => { const k = Object.keys(row); return { 'PO Number': (row[k[0]]||'').trim(), 'Quantity': parseInt(row[k[1]])||0 }; });
+      } else {
+        paypa.rawData = r.data.map(row => ({ 'PO Number': (row['PO Number']||'').trim(), 'Quantity': parseInt(row['Quantity'])||0 }));
+      }
+      document.getElementById('paypa-paste').value = '';
+      paypaUpdate();
+    }
+  });
+}
+
+function paypaUpdate() {
+  const week = document.getElementById('paypa-week').value || 'N/A';
+  const month = document.getElementById('paypa-month').value || 'N/A';
+  if (!paypa.rawData.length) return;
+
+  paypa.parsedData = paypa.rawData.map(r => ({
+    'PO Number': r['PO Number'], Quantity: r['Quantity'], Week: week, Month: month,
+    Destination: paypaGetDest(r['PO Number']), Color: paypaGetColor(r['PO Number']),
+    Pallets: Math.ceil(r['Quantity'] / 25)
+  }));
+
+  const tbody = document.getElementById('paypa-table');
+  tbody.innerHTML = '';
+  paypa.parsedData.forEach((r, i) => {
+    const totalPages = r.Pallets * 4;
+    tbody.innerHTML += `<tr><td>${r['PO Number']}</td><td>${r.Quantity}</td><td>${r.Week}</td><td>${r.Month}</td><td>${r.Destination}</td><td>${r.Color}</td><td>${r.Pallets} (${totalPages}pg)</td><td><button class="btn btn-primary" onclick="paypaGenPDF(${i})" style="padding:6px 12px;font-size:12px"><i class="fas fa-file-pdf"></i> PDF</button></td></tr>`;
+  });
+  document.getElementById('paypa-table-card').style.display = 'block';
+  document.getElementById('paypa-dl-btn').style.display = 'inline-flex';
+}
+
+function paypaGenPDF(index) {
+  const { jsPDF } = window.jspdf;
+  const row = paypa.parsedData[index];
+  const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+  const dcNum = row['PO Number'].toString().substring(0,2);
+  const suffixes = ['TH','ST','ND','RD','TH'];
+  const wk = row.Week === 'N/A' ? 'N/A' : parseInt(row.Week) + (suffixes[parseInt(row.Week)]||suffixes[0]);
+  const monthMap = {January:'JAN',February:'FEB',March:'MAR',April:'APR',May:'MAY',June:'JUN',July:'JUL',August:'AUG',September:'SEP',October:'OCT',November:'NOV',December:'DEC'};
+  const mo = row.Month === 'N/A' ? 'N/A' : (monthMap[row.Month]||row.Month);
+  const wmText = `${wk} WK ${mo}`;
+
+  for (let p = 1; p <= row.Pallets; p++) {
+    for (let c = 1; c <= 4; c++) {
+      if (p !== 1 || c !== 1) doc.addPage();
+      doc.setFont('helvetica','bold');
+      doc.setFontSize(60);
+      doc.text(`PO# ${row['PO Number']}`, 105, 165, { align:'center' });
+      doc.text(`DC ${dcNum}`, 105, 183, { align:'center' });
+      doc.text(`PLT # ${p}`, 105, 201, { align:'center' });
+      doc.text(row.Destination, 105, 219, { align:'center' });
+      doc.text(wmText, 105, 237, { align:'center' });
+    }
+  }
+  doc.save(`pallet_cards_${row['PO Number']}.pdf`);
+}
+
+function paypaTemplate() { downloadBlob('PO Number,Quantity\n', 'csv_template.csv'); }
+
+function paypaDownloadCSV() {
+  const headers = ['PO Number','Quantity','Week','Month','Destination','Color'];
+  const lines = [headers.join(',')];
+  paypa.parsedData.forEach(r => lines.push([`"${r['PO Number']}"`,r.Quantity,`"${r.Week}"`,`"${r.Month}"`,`"${r.Destination}"`,`"${r.Color}"`].join(',')));
+  downloadBlob(lines.join('\n'), 'enhanced_data.csv');
+}
+
+/* ================================================================
+   MODULE: LABEL MAKER (AutoZone / A&I / O'Reilly)
+   ================================================================ */
+const lm = { csvData: [], queue: [], printed: [], scanMode: 'mat', printers: [{ name: 'Default (Browser Print)' }] };
+
+const lmConsignees = {
+  autozone: { name: 'Auto Zone Parts, Inc - Memphis, USA', scanField: 'Mat', scanMode: 'mat' },
+  ai:       { name: 'A&I PRODUCTS', scanField: 'UPC', scanMode: 'upc' },
+  oreilly:  { name: 'OREILLY AUTO PARTS USA', scanField: 'UPC', scanMode: 'upc' }
+};
+
+function lmLoadFile(fileArg) {
+  const file = fileArg || document.getElementById('lm-file').files[0];
+  if (!file) { showMsg('lm-csv-status', 'Select a file.', 'error'); return; }
+  document.getElementById('lm-fname').textContent = file.name;
+  document.getElementById('lm-dropzone').classList.add('loaded');
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'csv') {
+    lmParseCSV(file);
+  } else if (ext === 'xlsx' || ext === 'xls') {
+    lmParseXLSX(file);
+  } else {
+    showMsg('lm-csv-status', 'Unsupported file type. Use .csv or .xlsx', 'error');
+  }
+}
+document.getElementById('lm-file').addEventListener('change', e => { if (e.target.files[0]) lmLoadFile(e.target.files[0]); });
+const lmDZ = document.getElementById('lm-dropzone');
+lmDZ.addEventListener('dragover', e => { e.preventDefault(); lmDZ.classList.add('dragover'); });
+lmDZ.addEventListener('dragleave', () => lmDZ.classList.remove('dragover'));
+lmDZ.addEventListener('drop', e => { e.preventDefault(); lmDZ.classList.remove('dragover'); if (e.dataTransfer.files[0]) lmLoadFile(e.dataTransfer.files[0]); });
+
+function lmSyncToProgressTracker(rows, customer) {
+  // Group rows into PT orders: each row = one box
+  // O'Reilly groups by DC, others group by orderNo
+  const grouped = {};
+  rows.forEach(row => {
+    const orderId = (customer === 'oreilly' && row.dc) ? row.dc : (row.orderNo || 'Unknown');
+    const partNumber = row.upc;
+    const name = row.mat;
+    if (!orderId || !partNumber) return;
+    if (!grouped[orderId]) grouped[orderId] = {};
+    if (!grouped[orderId][partNumber]) grouped[orderId][partNumber] = { name, count: 0 };
+    grouped[orderId][partNumber].count++;
+  });
+
+  Object.entries(grouped).forEach(([orderId, parts]) => {
+    if (!pt.orders[orderId]) pt.orders[orderId] = { id: orderId, items: [], pulled: {}, _customer: customer };
+    Object.entries(parts).forEach(([partNumber, { name, count }]) => {
+      const existing = pt.orders[orderId].items.find(i => i.partNumber === partNumber);
+      if (existing) {
+        existing.qty += count;
+      } else {
+        pt.orders[orderId].items.push({ partNumber, name, qty: count });
+        pt.orders[orderId].pulled[partNumber] = 0;
+      }
+    });
+  });
+
+  if (Object.keys(pt.orders).length > 0) {
+    document.getElementById('pt-orders-card').style.display = 'block';
+    document.getElementById('pt-scan-card').style.display = 'block';
+    ptRenderOrders();
+  }
+}
+
+function lmDetectCustomer(rows) {
+  // Sample up to 10 rows to find a UPC and match by prefix
+  for (const row of rows.slice(0, 10)) {
+    const upc = String(row.upc || '').trim();
+    if (upc.startsWith('8906')) return 'oreilly';
+    if (upc.startsWith('6719')) return 'ai';
+    if (upc.startsWith('8401')) return 'autozone';
+  }
+  return null;
+}
+
+function lmApplyParsedData(rows, sourceDesc) {
+  if (!rows.length) throw new Error('No valid rows found.');
+
+  // Auto-detect customer from UPC prefix of the NEW rows
+  const detected = lmDetectCustomer(rows);
+  if (detected) document.getElementById('lm-customer').value = detected;
+  const customer = document.getElementById('lm-customer').value;
+
+  // Tag every row with its customer, then APPEND (not replace)
+  const tagged = rows.map(r => ({ ...r, _customer: customer }));
+  lm.csvData = [...lm.csvData, ...tagged];
+
+  // Sync to Progress Tracker and save PT to DB so other users see the new orders
+  lmSyncToProgressTracker(tagged, customer);
+  db.savePTSession(pt.orders, pt.pallets);
+
+  lm.scanMode = lmConsignees[customer].scanMode;
+  document.getElementById('lm-scan-label').textContent = `Scan ${lmConsignees[customer].scanField} Barcode`;
+  document.getElementById('lm-scan').placeholder = `Enter ${lmConsignees[customer].scanField}...`;
+  document.getElementById('lm-scan-card').style.display = 'block';
+  document.getElementById('lm-queue-card').style.display = 'block';
+  document.getElementById('lm-unfound-btn').style.display = 'inline-flex';
+  showMsg('lm-csv-status', `${sourceDesc}: ${rows.length} items added (${lm.csvData.filter(r => r._customer === customer).length} total for ${lmConsignees[customer].name}).`, 'success');
+  lmUpdateStats();
+  document.getElementById('lm-scan').focus();
+  db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+}
+
+function lmParseCSV(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const lines = e.target.result.split('\n').filter(l => l.trim());
+      if (lines.length < 2) throw new Error('Empty CSV.');
+      const header = parseCSVLine(lines[0]);
+      const headerLower = header.map(h => h.toLowerCase().trim());
+      const requiredCols = ['packing no','net wt','grs wt','mat','qty','upc','order no'];
+      const colIdx = {};
+      requiredCols.forEach(col => {
+        const idx = headerLower.findIndex(h => h === col);
+        if (idx === -1) throw new Error(`Missing column: ${col}`);
+        colIdx[col] = idx;
+      });
+      ['date','dc','number'].forEach(col => {
+        const idx = headerLower.findIndex(h => h === col);
+        colIdx[col] = idx >= 0 ? idx : -1;
+      });
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const vals = parseCSVLine(lines[i]);
+        if (vals.length < 4) continue;
+        rows.push({
+          packingNo: vals[colIdx['packing no']] || '',
+          netWt:     vals[colIdx['net wt']] || '',
+          grsWt:     vals[colIdx['grs wt']] || '',
+          mat:       vals[colIdx['mat']] || '',
+          qty:       vals[colIdx['qty']] || '',
+          upc:       vals[colIdx['upc']] || '',
+          orderNo:   vals[colIdx['order no']] || '',
+          date:      colIdx['date']   >= 0 ? (vals[colIdx['date']]   || '') : '',
+          dc:        colIdx['dc']     >= 0 ? (vals[colIdx['dc']]     || '') : '',
+          number:    colIdx['number'] >= 0 ? (vals[colIdx['number']] || '') : ''
+        });
+      }
+      lmApplyParsedData(rows, 'CSV loaded');
+    } catch(err) { showMsg('lm-csv-status', err.message, 'error'); }
+  };
+  reader.readAsText(file);
+}
+
+function lmParseXLSX(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array', raw: false });
+
+      // A&I JKF pickup request format: sheet name contains "format" or "jkf"
+      const jkfSheet = wb.SheetNames.find(n => /format|jkf/i.test(n));
+      if (jkfSheet) {
+        const rows = lmParseJKFSheet(wb.Sheets[jkfSheet]);
+        if (rows.length) { lmApplyParsedData(rows, `Excel loaded (${rows.length} cases)`); return; }
+      }
+
+      // Standard barcodes format — collect all matching sheets
+      const rows = [];
+      const sheetsUsed = [];
+      for (const sheetName of wb.SheetNames) {
+        const raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '', raw: false });
+        const parsed = lmParseStandardBarcodeSheet(raw);
+        if (parsed.length) { rows.push(...parsed); sheetsUsed.push(sheetName); }
+      }
+      if (!rows.length) throw new Error('Could not find barcodes data. Check customer format.');
+      lmApplyParsedData(rows, `Excel loaded (${sheetsUsed.length} sheet${sheetsUsed.length > 1 ? 's' : ''})`);
+    } catch(err) { showMsg('lm-csv-status', err.message, 'error'); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function lmParseStandardBarcodeSheet(raw) {
+  // Find the header row — col 0 should say "Packing No" or "Package No."
+  let headerRow = -1;
+  for (let i = 0; i < Math.min(raw.length, 5); i++) {
+    const cell = String(raw[i][0] || '').toLowerCase().trim();
+    if (cell === 'packing no' || cell === 'package no.' || cell === 'package no') {
+      headerRow = i; break;
+    }
+  }
+  if (headerRow === -1) return [];
+
+  const header = raw[headerRow].map(h => String(h || '').toLowerCase().trim());
+  const find = (...names) => { for (const n of names) { const i = header.indexOf(n); if (i >= 0) return i; } return -1; };
+
+  const col = {
+    packingNo: find('packing no', 'package no.', 'package no'),
+    netWt:     find('net wt', 'nt. wt', 'nett wt'),
+    grsWt:     find('grs wt', 'gr. wt', 'gross wt'),
+    mat:       find('mat', 'material'),
+    qty:       find('qty', 'per box qty'),
+    upc:       find('upc'),
+    orderNo:   find('order no', 'order no.'),
+    date:      find('date'),
+    dc:        find('dc'),
+    number:    find('number', 'remarks')
+  };
+
+  if (col.upc === -1 || col.mat === -1) return [];
+
+  const rows = [];
+  for (let i = headerRow + 1; i < raw.length; i++) {
+    const r = raw[i];
+    const packingNo = col.packingNo >= 0 ? String(r[col.packingNo] || '').trim() : '';
+    if (!packingNo) continue;
+    rows.push({
+      packingNo,
+      netWt:   col.netWt   >= 0 ? String(r[col.netWt]   || '') : '',
+      grsWt:   col.grsWt   >= 0 ? String(r[col.grsWt]   || '') : '',
+      mat:     col.mat     >= 0 ? String(r[col.mat]     || '') : '',
+      qty:     col.qty     >= 0 ? String(r[col.qty]     || '') : '',
+      upc:     col.upc     >= 0 ? String(r[col.upc]     || '') : '',
+      orderNo: col.orderNo >= 0 ? String(r[col.orderNo] || '') : '',
+      date:    col.date    >= 0 ? String(r[col.date]    || '') : '',
+      dc:      col.dc      >= 0 ? String(r[col.dc]      || '') : '',
+      number:  col.number  >= 0 ? String(r[col.number]  || '') : ''
+    });
+  }
+  return rows;
+}
+
+function lmParseJKFSheet(sheet) {
+  // Header at row 2, date in row 0 col 3
+  // Cols: 0=S.No, 1=Mother Invoice, 2=Customer Part No (Mat), 3=Qty, 4=Case No,
+  //       5=Gross Wt, 6=Nett Wt, 7=UPC, 8=New Case No (Packing No), 9=Sale Invoice (Order No)
+  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+  const dateStr = raw[0] ? String(raw[0][3] || '').trim() : '';
+  const rows = [];
+  for (let i = 3; i < raw.length; i++) {
+    const r = raw[i];
+    const sNo = String(r[0] || '').trim();
+    if (!sNo || isNaN(Number(sNo))) continue;
+    rows.push({
+      packingNo: String(r[8] || ''),
+      netWt:     String(r[6] || ''),
+      grsWt:     String(r[5] || ''),
+      mat:       String(r[2] || ''),
+      qty:       String(r[3] || ''),
+      upc:       String(r[7] || ''),
+      orderNo:   String(r[9] || ''),
+      date:      dateStr,
+      dc:        '',
+      number:    ''
+    });
+  }
+  return rows;
+}
+
+document.getElementById('lm-customer').addEventListener('change', () => {
+  const customer = document.getElementById('lm-customer').value;
+  lm.scanMode = lmConsignees[customer].scanMode;
+  document.getElementById('lm-scan-label').textContent = `Scan ${lmConsignees[customer].scanField} Barcode`;
+  document.getElementById('lm-scan').placeholder = `Enter ${lmConsignees[customer].scanField}...`;
+  lmRefreshQueue();
+});
+
+function lmScan() {
+  const input = document.getElementById('lm-scan');
+  const code = input.value.trim();
+  if (!code) return;
+  if (!lm.csvData.length) { showMsg('lm-scan-status','Upload CSV first.','error'); input.value = ''; return; }
+
+  const customer = document.getElementById('lm-customer').value;
+  const field = lm.scanMode === 'mat' ? 'mat' : 'upc';
+  const matches = lm.csvData.filter(r => r._customer === customer && r[field].toUpperCase() === code.toUpperCase());
+
+  if (matches.length === 0) {
+    showMsg('lm-scan-status', `No matching item found for: ${code}`, 'error');
+    document.getElementById('lm-last-scan').style.display = 'none';
+  } else {
+    // Count how many times this code is already queued or printed for this customer
+    const alreadyScanned = [...lm.queue, ...lm.printed].filter(r =>
+      r._customer === customer && String(r[field] || '').toUpperCase() === code.toUpperCase()
+    ).length;
+    if (alreadyScanned >= matches.length) {
+      showMsg('lm-scan-status', `Already scanned all ${matches.length} label(s) for ${field.toUpperCase()} ${code} — no more needed.`, 'error');
+      input.value = '';
+      input.focus();
+      return;
+    }
+    const item = matches[alreadyScanned];  // Pick the next unscanned CSV row
+    lm.queue.push({ ...item, _customer: customer });
+    const remaining = matches.length - alreadyScanned - 1;
+    showMsg('lm-scan-status', `Added to queue: ${field.toUpperCase()} ${code} (${remaining} more needed) - Keep scanning!`, 'success');
+    document.getElementById('lm-last-scan').style.display = 'block';
+    document.getElementById('lm-last-detail').textContent = `${field.toUpperCase()}: ${item[field]} | Order: ${item.orderNo} | Mat: ${item.mat} | Qty: ${item.qty}`;
+    lmRefreshQueue();
+    lmUpdatePreview(item);
+    logActivity('print', `Label queued: ${item.orderNo} (${item.mat})`, '#10b981');
+    dashUpdateStats();
+    db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+    if (document.getElementById('lm-autoprint').checked) {
+      lmPrintOne(lm.queue.length - 1);
+    }
+  }
+  input.value = '';
+  input.focus();
+}
+
+document.getElementById('lm-scan').addEventListener('keypress', e => { if (e.key === 'Enter') lmScan(); });
+
+function lmRefreshQueue() {
+  const customer = document.getElementById('lm-customer').value;
+  const tbody = document.getElementById('lm-queue-table');
+  tbody.innerHTML = '';
+  let displayNum = 0;
+  lm.queue.forEach((item, i) => {
+    if (item._customer !== customer) return;
+    displayNum++;
+    tbody.innerHTML += `<tr>
+      <td>${displayNum}</td>
+      <td>${item.orderNo}</td>
+      <td>${item.upc}</td>
+      <td>${item.mat}</td>
+      <td>${item.qty}</td>
+      <td>
+        <button class="btn btn-warning" onclick="lmPrintOne(${i})" style="padding:4px 10px;font-size:11px"><i class="fas fa-print"></i></button>
+        <button class="btn btn-info" onclick="lmDownloadZPL(${i})" style="padding:4px 10px;font-size:11px"><i class="fas fa-download"></i></button>
+        <button class="btn btn-danger" onclick="lmRemoveFromQueue(${i})" style="padding:4px 10px;font-size:11px"><i class="fas fa-times"></i></button>
+      </td>
+    </tr>`;
+  });
+  document.getElementById('lm-queue-count').textContent = displayNum;
+  lmUpdateStats();
+}
+
+function lmGetUnprintedItems() {
+  const customer = document.getElementById('lm-customer').value;
+  const field = lm.scanMode === 'mat' ? 'mat' : 'upc';
+  // Count how many times each code was printed or is in queue (scanned) for this customer
+  const scannedCounts = {};
+  [...lm.printed, ...lm.queue].filter(r => r._customer === customer).forEach(item => {
+    const key = String(item[field] || '').toUpperCase();
+    scannedCounts[key] = (scannedCounts[key] || 0) + 1;
+  });
+  // Walk this customer's csvData and subtract scanned counts
+  const usedCounts = {};
+  return lm.csvData.filter(item => {
+    if (item._customer !== customer) return false;
+    const key = String(item[field] || '').toUpperCase();
+    usedCounts[key] = usedCounts[key] || 0;
+    if (usedCounts[key] < (scannedCounts[key] || 0)) {
+      usedCounts[key]++;
+      return false; // scanned (printed or in queue)
+    }
+    return true; // not yet scanned
+  });
+}
+
+function lmUpdateStats() {
+  const customer = document.getElementById('lm-customer').value;
+  const loaded   = lm.csvData.filter(r => r._customer === customer).length;
+  const printed  = lm.printed.filter(r => r._customer === customer).length;
+  const unprinted = lmGetUnprintedItems();
+  const remaining = unprinted.length;
+  const bar = document.getElementById('lm-stats-bar');
+  bar.style.display = loaded > 0 ? 'flex' : 'none';
+  document.getElementById('lm-stat-loaded').textContent    = loaded;
+  document.getElementById('lm-stat-printed').textContent   = printed;
+  document.getElementById('lm-stat-remaining').textContent = remaining;
+  document.getElementById('lm-stat-unfound').textContent   = remaining;
+  const unfoundBtn = document.getElementById('lm-unfound-btn');
+  document.getElementById('lm-unfound-count').textContent  = remaining;
+  unfoundBtn.disabled = remaining === 0;
+  unfoundBtn.style.opacity = remaining === 0 ? '0.45' : '1';
+}
+
+function lmDownloadUnfound() {
+  const items = lmGetUnprintedItems();
+  if (!items.length) return;
+  const csvEsc = v => { const s = String(v ?? ''); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const lines = ['Packing No,Mat,UPC,Qty,Order No,DC'];
+  items.forEach(r => lines.push([csvEsc(r.packingNo), csvEsc(r.mat), csvEsc(r.upc), csvEsc(r.qty), csvEsc(r.orderNo), csvEsc(r.dc)].join(',')));
+  downloadBlob(lines.join('\r\n'), `Unfound_${todayStr().replace(/-/g,'')}.csv`);
+}
+
+function lmRemoveFromQueue(i) {
+  lm.queue.splice(i, 1);
+  lmRefreshQueue();
+  db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+}
+
+function lmClearQueue() {
+  const customer = document.getElementById('lm-customer').value;
+  lm.queue = lm.queue.filter(r => r._customer !== customer);
+  lm.printed = lm.printed.filter(r => r._customer !== customer);
+  lmRefreshQueue();
+  db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+}
+
+function lmReset() {
+  const customer = document.getElementById('lm-customer').value;
+  lm.csvData = lm.csvData.filter(r => r._customer !== customer);
+  lm.queue   = lm.queue.filter(r => r._customer !== customer);
+  lm.printed = lm.printed.filter(r => r._customer !== customer);
+  document.getElementById('lm-file').value = '';
+  document.getElementById('lm-fname').textContent = '';
+  document.getElementById('lm-dropzone').classList.remove('loaded');
+  hideMsg('lm-csv-status');
+  // Only hide scan/queue cards if no data remains for any customer
+  if (!lm.csvData.length) {
+    document.getElementById('lm-scan-card').style.display = 'none';
+    document.getElementById('lm-stats-bar').style.display = 'none';
+    document.getElementById('lm-unfound-btn').style.display = 'none';
+    document.getElementById('lm-unfound-count').textContent = '0';
+  }
+  lmRefreshQueue();
+  db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+}
+
+async function lmLoadFromDB() {
+  const row = await db.loadLabelMaker();
+  if (!row) return;
+  if (Array.isArray(row.csv_data) && row.csv_data.length) {
+    lm.csvData = row.csv_data;
+    // Rebuild Progress Tracker orders from the loaded data without duplicating
+    const customers = [...new Set(lm.csvData.map(r => r._customer).filter(Boolean))];
+    customers.forEach(customer => {
+      const rows = lm.csvData.filter(r => r._customer === customer);
+      lmSyncToProgressTracker(rows, customer);
+    });
+    // Show UI cards since data is present
+    document.getElementById('lm-scan-card').style.display = 'block';
+    document.getElementById('lm-queue-card').style.display = 'block';
+    document.getElementById('lm-unfound-btn').style.display = 'inline-flex';
+    document.getElementById('lm-stats-bar').style.display = '';
+  }
+  if (Array.isArray(row.queue)) lm.queue = row.queue;
+  if (Array.isArray(row.printed)) lm.printed = row.printed;
+  lmRefreshQueue();
+  lmUpdateStats();
+}
+
+function lmBuildZPL(item) {
+  const customer = document.getElementById('lm-customer').value;
+  const consignee = lmConsignees[customer].name;
+  const today = new Date();
+  const dateStr = `${String(today.getMonth()+1).padStart(2,'0')}/${String(today.getDate()).padStart(2,'0')}/${today.getFullYear()}`;
+  const dcNum = customer === 'autozone' ? String(item.orderNo || '').substring(0, 2) : (item.dc || '');
+
+  return `^XA
+^PW812
+^LL1218
+^CF0,30
+^FO50,50^FDConsignee: ${consignee}^FS
+^FO50,85^FDConsigner: J.K. Fenner (India) Limited - USA^FS
+^FO50,130^FDCase No. ${item.packingNo}^FS
+^FO400,130^FDDate Packed: ${dateStr}^FS
+^FO50,165^FDNet Wt: ${item.netWt}^FS
+^FO250,165^FDGross Wt: ${item.grsWt}^FS
+^FO50,200^GB712,3,3^FS
+^CF0,50
+^FO50,250^FDOrder No: ${item.orderNo}^FS
+^FO50,300^BY4^BCN,100,N,N,N^FD${item.orderNo}^FS
+^CF0,50
+^FO50,430^FDUPC: ${item.upc}^FS
+^FO50,480^BY4^BCN,100,N,N,N^FD${item.upc}^FS
+^CF0,50
+^FO50,610^FDMat: ${item.mat}^FS
+^FO50,660^BY5^BCN,100,N,N,N^FD${item.mat}^FS
+^CF0,50
+^FO50,790^FDQty: ${item.qty}^FS
+^FO50,840^BY4^BCN,100,N,N,N^FD${item.qty}^FS
+${customer === 'autozone' ? `^A0N,200,200\n^FO500,800^FD${dcNum}^FS` : ''}
+^FO50,970^GB712,3,3^FS
+${customer === 'oreilly' && dcNum ? `^A0N,140,140\n^FO50,1000^FD${dcNum}^FS` : ''}
+${customer === 'ai' ? `^A0N,140,140\n^FO50,1000^FD${item.mat}^FS` : ''}
+^XZ`;
+}
+
+function lmUpdatePreview(item) {
+  const card = document.getElementById('lm-preview-card');
+  if (!item && !lm.queue.length) { card.style.display = 'none'; return; }
+  const data = item || lm.queue[lm.queue.length - 1];
+  if (!data) { card.style.display = 'none'; return; }
+  const customer = document.getElementById('lm-customer').value;
+  const consignee = lmConsignees[customer].name;
+  const today = new Date();
+  const dateStr = `${String(today.getMonth()+1).padStart(2,'0')}/${String(today.getDate()).padStart(2,'0')}/${today.getFullYear()}`;
+  const dcNum = customer === 'autozone' ? String(data.orderNo || '').substring(0, 2) : (data.dc || '');
+
+  document.getElementById('lm-preview').innerHTML = `
+    <div style="border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:10px">
+      <div style="font-size:11px">Consignee: <strong>${consignee}</strong></div>
+      <div style="font-size:11px">Consigner: J.K. Fenner (India) Limited - USA</div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px">
+        <span>Case No. <strong>${data.packingNo}</strong></span>
+        <span>Date: <strong>${dateStr}</strong></span>
+      </div>
+      <div style="display:flex;gap:20px">
+        <span>Net Wt: <strong>${data.netWt}</strong></span>
+        <span>Gross Wt: <strong>${data.grsWt}</strong></span>
+      </div>
+    </div>
+    <div style="margin-bottom:8px"><span style="font-size:16px;font-weight:700">Order No: ${data.orderNo}</span><br><code style="letter-spacing:2px">||||| ${data.orderNo} |||||</code></div>
+    <div style="margin-bottom:8px"><span style="font-size:16px;font-weight:700">UPC: ${data.upc}</span><br><code style="letter-spacing:2px">||||| ${data.upc} |||||</code></div>
+    <div style="margin-bottom:8px"><span style="font-size:16px;font-weight:700">Mat: ${data.mat}</span><br><code style="letter-spacing:2px">||||| ${data.mat} |||||</code></div>
+    <div style="border-top:2px solid #000;padding-top:8px;margin-top:10px;display:flex;justify-content:space-between;align-items:center">
+      <div><span style="font-size:16px;font-weight:700">Qty: ${data.qty}</span><br><code style="letter-spacing:2px">||||| ${data.qty} |||||</code></div>
+      ${customer === 'autozone' && dcNum ? `<span style="font-size:56px;font-weight:900">${dcNum}</span>` : ''}
+    </div>
+    ${customer === 'oreilly' && dcNum ? `<div style="border-top:2px solid #000;padding-top:8px;margin-top:10px;text-align:center;font-size:36px;font-weight:900">${dcNum}</div>` : ''}
+    ${customer === 'ai' ? `<div style="border-top:2px solid #000;padding-top:8px;margin-top:10px;text-align:center;font-size:36px;font-weight:900">${data.mat}</div>` : ''}
+  `;
+  card.style.display = 'block';
+}
+
+function lmDownloadZPL(index) {
+  const item = lm.queue[index];
+  const zpl = lmBuildZPL(item);
+  downloadBlob(zpl, `label_${item.orderNo}_${item.mat}.zpl`, 'text/plain');
+}
+
+function lmDownloadAllZPL() {
+  if (!lm.queue.length) return;
+  const allZpl = lm.queue.map(item => lmBuildZPL(item)).join('\n');
+  downloadBlob(allZpl, `labels_batch_${todayStr()}.zpl`, 'text/plain');
+}
+
+function lmBuildLabelHTML(item) {
+  const customer = document.getElementById('lm-customer').value;
+  const consignee = lmConsignees[customer].name;
+  const today = new Date();
+  const dateStr = `${String(today.getMonth()+1).padStart(2,'0')}/${String(today.getDate()).padStart(2,'0')}/${today.getFullYear()}`;
+  const dcNum = customer === 'autozone' ? String(item.orderNo || '').substring(0, 2) : (item.dc || '');
+
+  return `
+    <div style="width:4in;height:6in;padding:0.15in 0.2in;font-family:Arial,Helvetica,sans-serif;color:#000;box-sizing:border-box;page-break-after:always;overflow:hidden">
+      <div style="font-size:8pt;line-height:1.3">
+        <div>Consignee: <b>${consignee}</b></div>
+        <div>Consigner: J.K. Fenner (India) Limited - USA</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:8pt">
+        <span>Case No. <b>${item.packingNo}</b></span>
+        <span>Date Packed: <b>${dateStr}</b></span>
+      </div>
+      <div style="display:flex;gap:16px;font-size:8pt;margin-top:2px">
+        <span>Net Wt: <b>${item.netWt}</b></span>
+        <span>Gross Wt: <b>${item.grsWt}</b></span>
+      </div>
+      <hr style="border:1px solid #000;margin:5px 0">
+      <div style="font-size:13pt;font-weight:700;margin-bottom:2px">Order No: ${item.orderNo}</div>
+      <svg class="lm-bc" data-value="${item.orderNo}"></svg>
+      <div style="font-size:13pt;font-weight:700;margin-top:6px;margin-bottom:2px">UPC: ${item.upc}</div>
+      <svg class="lm-bc" data-value="${item.upc}"></svg>
+      <div style="font-size:13pt;font-weight:700;margin-top:6px;margin-bottom:2px">Mat: ${item.mat}</div>
+      <svg class="lm-bc" data-value="${item.mat}"></svg>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+        <div>
+          <div style="font-size:13pt;font-weight:700;margin-bottom:2px">Qty: ${item.qty}</div>
+          <svg class="lm-bc" data-value="${item.qty}"></svg>
+        </div>
+        ${customer === 'autozone' && dcNum ? `<div style="font-size:64pt;font-weight:900;line-height:1">${dcNum}</div>` : ''}
+      </div>
+      <hr style="border:1px solid #000;margin:5px 0">
+      ${customer === 'oreilly' && dcNum ? `<div style="text-align:center;font-size:36pt;font-weight:900;line-height:1.1">${dcNum}</div>` : ''}
+      ${customer === 'ai' ? `<div style="text-align:center;font-size:36pt;font-weight:900;line-height:1.1">${item.mat}</div>` : ''}
+    </div>`;
+}
+
+function lmRenderBarcodes(container) {
+  container.querySelectorAll('svg.lm-bc').forEach(svg => {
+    const val = svg.dataset.value;
+    if (val) {
+      try {
+        JsBarcode(svg, val, { format: 'CODE128', width: 2, height: 45, displayValue: false, margin: 0 });
+      } catch(e) {
+        // Fallback for invalid barcode values
+        JsBarcode(svg, val, { format: 'CODE128', width: 2, height: 45, displayValue: false, margin: 0, valid: () => true });
+      }
+    }
+  });
+}
+
+/* ---- Printer management ---- */
+function lmRenderPrinterSelect() {
+  const sel = document.getElementById('lm-printer-select');
+  const current = parseInt(sel.value) || 0;
+  sel.innerHTML = lm.printers.map((p, i) => `<option value="${i}">${p.name}</option>`).join('');
+  sel.value = Math.min(current, lm.printers.length - 1);
+  // Show remove button only when a non-default printer is selected
+  const removeBtn = document.getElementById('lm-remove-printer-btn');
+  if (removeBtn) removeBtn.style.display = parseInt(sel.value) > 0 ? 'inline-flex' : 'none';
+}
+
+function lmUpdateBPStatus() {
+  const badge = document.getElementById('lm-bp-badge');
+  const hint  = document.getElementById('lm-bp-hint');
+  if (!badge) return;
+  if (window.BrowserPrint) {
+    badge.style.background = '#dcfce7'; badge.style.color = '#16a34a';
+    badge.textContent = '● BrowserPrint Ready';
+    if (hint) hint.style.display = 'none';
+  } else {
+    badge.style.background = '#fee2e2'; badge.style.color = '#dc2626';
+    badge.textContent = '● No BrowserPrint';
+    if (hint) hint.style.display = 'block';
+  }
+}
+
+function lmDetectZebraPrinters() {
+  if (!window.BrowserPrint) {
+    lmUpdateBPStatus();
+    showMsg('lm-scan-status', 'Zebra BrowserPrint not detected. See the hint below the printer selector.', 'error');
+    return;
+  }
+  BrowserPrint.getLocalDevices(function(devices) {
+    const list = (devices && devices.printer) ? devices.printer : [];
+    if (!list.length) { showMsg('lm-scan-status', 'BrowserPrint is running but no Zebra printers found. Is the printer on?', 'error'); return; }
+    // Add any discovered printers not already in the list
+    list.forEach(function(d) {
+      if (!lm.printers.find(function(p) { return p.name === d.name; })) {
+        lm.printers.push({ name: d.name });
+      }
+    });
+    lmRenderPrinterSelect();
+    // Auto-select the first Zebra printer found
+    const firstIdx = lm.printers.findIndex(function(p, i) { return i > 0; });
+    if (firstIdx > 0) document.getElementById('lm-printer-select').value = firstIdx;
+    showMsg('lm-scan-status', `Found ${list.length} Zebra printer(s): ${list.map(function(d){return d.name;}).join(', ')}`, 'success');
+    lmUpdateBPStatus();
+  }, function() {
+    showMsg('lm-scan-status', 'Could not reach BrowserPrint service.', 'error');
+  });
+}
+
+// Run status check after page loads
+setTimeout(lmUpdateBPStatus, 1500);
+
+function lmToggleAddPrinter() {
+  const form = document.getElementById('lm-add-printer-form');
+  const visible = form.style.display !== 'none';
+  form.style.display = visible ? 'none' : 'block';
+  if (!visible) {
+    document.getElementById('lm-printer-name').focus();
+    const sel = document.getElementById('lm-printer-select');
+    const removeBtn = document.getElementById('lm-remove-printer-btn');
+    if (removeBtn) removeBtn.style.display = parseInt(sel.value) > 0 ? 'inline-flex' : 'none';
+  }
+}
+
+function lmAddPrinter() {
+  const input = document.getElementById('lm-printer-name');
+  const name = input.value.trim();
+  if (!name) return;
+  lm.printers.push({ name });
+  input.value = '';
+  lmRenderPrinterSelect();
+  // Auto-select the new printer
+  document.getElementById('lm-printer-select').value = lm.printers.length - 1;
+  document.getElementById('lm-add-printer-form').style.display = 'none';
+}
+
+function lmRemovePrinter() {
+  const sel = document.getElementById('lm-printer-select');
+  const idx = parseInt(sel.value);
+  if (idx === 0) return; // can't remove Default
+  lm.printers.splice(idx, 1);
+  lmRenderPrinterSelect();
+}
+
+document.getElementById('lm-printer-select').addEventListener('change', () => {
+  const removeBtn = document.getElementById('lm-remove-printer-btn');
+  if (removeBtn) removeBtn.style.display = parseInt(document.getElementById('lm-printer-select').value) > 0 ? 'inline-flex' : 'none';
+});
+
+/* ---- Printing helpers ---- */
+function lmDoBrowserPrint(htmlContent, onDone) {
+  // Frame is always rendered off-screen (via CSS) so JsBarcode can draw on it.
+  // We just swap the content and call window.print().
+  const frame = document.getElementById('lm-print-frame');
+  frame.innerHTML = htmlContent;
+  lmRenderBarcodes(frame);
+  setTimeout(() => {
+    window.print();
+    if (onDone) onDone();
+  }, 200);
+}
+
+function lmSendToZebraPrinter(zpl, htmlFallback, onDone) {
+  // Always try Zebra BrowserPrint first (silent, no dialog).
+  // Fall back to browser print only if BrowserPrint isn't installed or no device found.
+  if (window.BrowserPrint) {
+    BrowserPrint.getLocalDevices(function(devices) {
+      const list = (devices && devices.printer) ? devices.printer : [];
+      const printerIdx = parseInt(document.getElementById('lm-printer-select').value) || 0;
+      const selectedPrinter = lm.printers[printerIdx];
+      // Prefer the selected named printer; otherwise use the first Zebra device found
+      const target = (selectedPrinter && printerIdx > 0)
+        ? (list.find(d => d.name === selectedPrinter.name) || list[0])
+        : list[0];
+      if (target) {
+        target.send(zpl,
+          () => { if (onDone) onDone(); },
+          (err) => {
+            showMsg('lm-scan-status', `Printer error: ${err}. Falling back to browser print.`, 'error');
+            lmDoBrowserPrint(htmlFallback, onDone);
+          }
+        );
+      } else {
+        // No Zebra device found — fall back
+        lmDoBrowserPrint(htmlFallback, onDone);
+      }
+    }, () => lmDoBrowserPrint(htmlFallback, onDone));
+  } else {
+    lmDoBrowserPrint(htmlFallback, onDone);
+  }
+}
+
+function lmPrintOne(index) {
+  const item = lm.queue[index];
+  if (!item) return;
+  lmSendToZebraPrinter(lmBuildZPL(item), lmBuildLabelHTML(item), () => {
+    dashStats.labels++;
+    logActivity('check-circle', `Printed: ${item.orderNo} / ${item.mat}`, '#10b981');
+    // Move from queue to printed
+    lm.printed.push(item);
+    lm.queue.splice(lm.queue.indexOf(item), 1);
+    lmRefreshQueue();
+    db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+    dashUpdateStats();
+  });
+}
+
+function lmPrintAll() {
+  const customer = document.getElementById('lm-customer').value;
+  const customerQueue = lm.queue.filter(r => r._customer === customer);
+  if (!customerQueue.length) { showMsg('lm-scan-status', 'Queue is empty.', 'error'); return; }
+  const allZpl  = customerQueue.map(item => lmBuildZPL(item)).join('\n');
+  const allHtml = customerQueue.map(item => lmBuildLabelHTML(item)).join('');
+  lmSendToZebraPrinter(allZpl, allHtml, () => {
+    // Move all printed items from queue to printed
+    customerQueue.forEach(item => {
+      dashStats.labels++;
+      lm.printed.push(item);
+    });
+    lm.queue = lm.queue.filter(r => r._customer !== customer);
+    logActivity('check-circle', `Batch printed: ${customerQueue.length} labels for ${lmConsignees[customer].name}`, '#10b981');
+    lmRefreshQueue();
+    db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+    dashUpdateStats();
+  });
+}
+
+/* ================================================================
+   MODULE: PROGRESS TRACKER
+   ================================================================ */
+const pt = { orders: {}, pallets: [], selectedOrder: null, selectedPallet: 0 };
+
+// File handling
+function ptLoadFile(file) {
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'csv') { ptLoadCSV(file); }
+  else if (ext === 'xlsx' || ext === 'xls') { ptLoadXLSX(file); }
+  else { showMsg('pt-csv-status', 'Unsupported file type. Use .csv or .xlsx', 'error'); }
+}
+document.getElementById('pt-file').addEventListener('change', e => { if (e.target.files[0]) ptLoadFile(e.target.files[0]); });
+const ptDZ = document.getElementById('pt-dropzone');
+ptDZ.addEventListener('dragover', e => { e.preventDefault(); ptDZ.classList.add('dragover'); });
+ptDZ.addEventListener('dragleave', () => ptDZ.classList.remove('dragover'));
+ptDZ.addEventListener('drop', e => { e.preventDefault(); ptDZ.classList.remove('dragover'); if (e.dataTransfer.files[0]) ptLoadFile(e.dataTransfer.files[0]); });
+
+function ptLoadCSV(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const lines = e.target.result.split('\n').filter(l => l.trim());
+      if (lines.length < 2) throw new Error('Empty CSV.');
+      // Format: Order#, Part#, Name, Qty
+      pt.orders = {};
+      for (let i = 1; i < lines.length; i++) {
+        const vals = parseCSVLine(lines[i]);
+        if (vals.length < 4) continue;
+        const orderId = vals[0].trim();
+        const partNumber = vals[1].trim();
+        const name = vals[2].trim();
+        const qty = parseInt(vals[3]) || 0;
+        if (!orderId || !partNumber || qty <= 0) continue;
+        if (!pt.orders[orderId]) pt.orders[orderId] = { id: orderId, items: [], pulled: {} };
+        pt.orders[orderId].items.push({ partNumber, name, qty });
+        if (!pt.orders[orderId].pulled[partNumber]) pt.orders[orderId].pulled[partNumber] = 0;
+      }
+      const orderCount = Object.keys(pt.orders).length;
+      const itemCount = Object.values(pt.orders).reduce((s,o) => s + o.items.length, 0);
+      if (!orderCount) throw new Error('No valid orders found.');
+      showMsg('pt-csv-status', `Loaded ${orderCount} orders with ${itemCount} items.`, 'success');
+      document.getElementById('pt-orders-card').style.display = 'block';
+      document.getElementById('pt-scan-card').style.display = 'block';
+      document.getElementById('pt-scan').focus();
+      ptRenderOrders();
+      db.savePTSession(pt.orders, pt.pallets);
+    } catch(err) { showMsg('pt-csv-status', err.message, 'error'); }
+  };
+  reader.readAsText(file);
+}
+
+function ptLoadXLSX(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const wb = XLSX.read(e.target.result, { type: 'array', raw: false });
+      if (!wb.SheetNames.length) throw new Error('No sheets found in workbook.');
+      pt.orders = {};
+
+      // Column-matching helpers (broadened for real-world files)
+      const isOrderCol = c => /order(?!\s*type)|po[#\s]|po$/i.test(c);
+      const isPartCol  = c => /part|mat($|[^c])|material|sku|item/i.test(c);
+      const isQtyCol   = c => /qty|quantity|ship\s*qty/i.test(c);
+      const isBoxCol   = c => /no\.?\s*of\s*box|num.*box|boxes|cartons/i.test(c);
+      const isNameCol  = c => /name|desc|material/i.test(c);
+
+      function findHeader(rows) {
+        for (let r = 0; r < Math.min(rows.length, 6); r++) {
+          const cells = rows[r].map(c => String(c).toLowerCase().trim());
+
+          // Special case: O'Reilly Barcodes sheet (UPC + DC + Mat columns present)
+          // Order Detail = DC, Part # = UPC (scanned barcode), Name = Mat
+          const upcIdx = cells.indexOf('upc');
+          const dcIdx  = cells.indexOf('dc');
+          const matIdx = cells.indexOf('mat');
+          const bQtyIdx = cells.findIndex(isQtyCol);
+          if (upcIdx !== -1 && dcIdx !== -1 && matIdx !== -1 && bQtyIdx !== -1) {
+            const remarksIdx = cells.findIndex(c => /remark/i.test(c));
+            return { headerIdx: r, order: dcIdx, part: upcIdx, name: matIdx, qty: bQtyIdx, boxes: -1, isBarcodes: true, remarks: remarksIdx };
+          }
+
+          const oIdx = cells.findIndex(isOrderCol);
+          const pIdx = cells.findIndex(isPartCol);
+          const qIdx = cells.findIndex(isQtyCol);
+          if (pIdx !== -1 && qIdx !== -1) {
+            const bIdx = cells.findIndex(isBoxCol);  // "No. of Boxes" column
+            const nIdx = cells.findIndex(c => isNameCol(c) && cells.indexOf(c) !== pIdx);
+            return { headerIdx: r, order: oIdx, part: pIdx, name: nIdx !== -1 ? nIdx : -1, qty: qIdx, boxes: bIdx };
+          }
+        }
+        return null;
+      }
+
+      // If the workbook has Barcodes sheets, only process those (skip Packing List sheets)
+      const hasBarcodeSheets = wb.SheetNames.some(s => /^barcode/i.test(s.trim()));
+
+      // Two-pass consolidation:
+      // Pass 1: Sum quantities within each sheet (handles per-box rows like barcodes)
+      // Pass 2: Take MAX across sheets (prevents double-counting from summary sheets)
+      const globalMap = {};  // key: "orderId|partNumber" → { orderId, partNumber, name, qty }
+
+      for (const sheetName of wb.SheetNames) {
+        // When Barcodes sheets exist, skip non-Barcodes sheets entirely
+        if (hasBarcodeSheets && !/^barcode/i.test(sheetName.trim())) continue;
+
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '', raw: false });
+        if (rows.length < 2) continue;
+
+        const colMap = findHeader(rows);
+        if (!colMap) continue;
+
+        // Check if this is a "one order per sheet" format (order # in row 1 or sheet name)
+        let sheetOrderId = null;
+        if (colMap.order === -1) {
+          const r0 = rows[0];
+          if (r0 && /^order$/i.test(String(r0[0] || '').trim()) && r0[1]) {
+            sheetOrderId = String(r0[1]).trim();
+          } else {
+            sheetOrderId = sheetName;
+          }
+        }
+
+        // Pass 1: Sum boxes within this sheet
+        // If "No. of Boxes" column exists, use it; otherwise each row = 1 box
+        const hasBoxCol = colMap.boxes !== -1;
+        const sheetMap = {};
+        for (let i = colMap.headerIdx + 1; i < rows.length; i++) {
+          const row = rows[i];
+          let orderId = sheetOrderId || String(row[colMap.order] || '').trim();
+          // Barcodes fallback: MasterPro DC column contains XLOOKUP formulas that don't
+          // evaluate in the browser — extract DC from the Remarks column instead
+          if (colMap.isBarcodes && (!orderId || orderId.startsWith('='))) {
+            const remarksVal = colMap.remarks !== -1 ? String(row[colMap.remarks] || '').trim() : '';
+            const dcMatch = remarksVal.match(/DC#\d+\s+[A-Z]+/i);
+            orderId = dcMatch ? dcMatch[0] : '';
+          }
+          const partNumber = String(row[colMap.part] || '').trim();
+          const name = colMap.name !== -1 ? String(row[colMap.name] || '').trim() : '';
+          const checkQty = parseInt(row[colMap.qty]) || 0;
+          if (!orderId || !partNumber || checkQty <= 0) continue;
+          // Box count: use box column if available, otherwise 1 box per row
+          const boxes = hasBoxCol ? (parseInt(row[colMap.boxes]) || 1) : 1;
+
+          const key = `${orderId}|${partNumber}`;
+          if (!sheetMap[key]) sheetMap[key] = { orderId, partNumber, name, qty: 0 };
+          sheetMap[key].qty += boxes;
+          if (name && !sheetMap[key].name) sheetMap[key].name = name;
+        }
+
+        // Pass 2: Merge into global — take MAX qty per order+part across sheets
+        for (const [key, item] of Object.entries(sheetMap)) {
+          if (!globalMap[key]) {
+            globalMap[key] = { ...item };
+          } else {
+            globalMap[key].qty = Math.max(globalMap[key].qty, item.qty);
+            if (item.name && !globalMap[key].name) globalMap[key].name = item.name;
+          }
+        }
+      }
+
+      // Build pt.orders from consolidated global map
+      for (const item of Object.values(globalMap)) {
+        if (!pt.orders[item.orderId]) pt.orders[item.orderId] = { id: item.orderId, items: [], pulled: {} };
+        pt.orders[item.orderId].items.push({ partNumber: item.partNumber, name: item.name, qty: item.qty });
+        if (!pt.orders[item.orderId].pulled[item.partNumber]) pt.orders[item.orderId].pulled[item.partNumber] = 0;
+      }
+
+      const orderCount = Object.keys(pt.orders).length;
+      const itemCount = Object.values(pt.orders).reduce((s,o) => s + o.items.length, 0);
+      if (!orderCount) throw new Error('No valid orders found. Check that file has columns for Part/Material and Qty.');
+      showMsg('pt-csv-status', `Excel loaded — ${orderCount} orders with ${itemCount} items.`, 'success');
+      document.getElementById('pt-orders-card').style.display = 'block';
+      document.getElementById('pt-scan-card').style.display = 'block';
+      document.getElementById('pt-scan').focus();
+      ptRenderOrders();
+      db.savePTSession(pt.orders, pt.pallets);
+    } catch(err) { showMsg('pt-csv-status', err.message, 'error'); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+const ptCustomerTheme = {
+  oreilly:  { bg: '#f0fdf4', accent: '#16a34a', label: "O'Reilly" },
+  ai:       { bg: '#eef2ff', accent: '#4f46e5', label: 'A&I'      },
+  autozone: { bg: '#fff7ed', accent: '#ea580c', label: 'AutoZone' }
+};
+
+function ptRenderOrders() {
+  const container = document.getElementById('pt-orders-list');
+  const search = (document.getElementById('pt-search').value || '').toLowerCase();
+  const orders = Object.values(pt.orders);
+
+  // Summary bar
+  const complete = orders.filter(o => {
+    const t = o.items.reduce((s,i) => s+i.qty,0);
+    const p = Object.values(o.pulled).reduce((s,v)=>s+v,0);
+    return t > 0 && p >= t;
+  }).length;
+  const inProgress = orders.filter(o => {
+    const t = o.items.reduce((s,i) => s+i.qty,0);
+    const p = Object.values(o.pulled).reduce((s,v)=>s+v,0);
+    return p > 0 && p < t;
+  }).length;
+  const notStarted = orders.length - complete - inProgress;
+  document.getElementById('pt-summary-bar').innerHTML = `
+    <div class="pt-summary-seg"><div class="num" style="color:#0f172a">${orders.length}</div><div class="lbl">Total Orders</div></div>
+    <div class="pt-summary-seg"><div class="num" style="color:#10b981">${complete}</div><div class="lbl">Complete</div></div>
+    <div class="pt-summary-seg"><div class="num" style="color:#f59e0b">${inProgress}</div><div class="lbl">In Progress</div></div>
+    <div class="pt-summary-seg"><div class="num" style="color:#94a3b8">${notStarted}</div><div class="lbl">Not Started</div></div>`;
+  const cnt = document.getElementById('pt-order-count');
+  if (cnt) cnt.textContent = `(${orders.length})`;
+
+  container.innerHTML = '';
+  // Sort: in-progress first, then not started, then complete
+  const sorted = [...orders].sort((a,b) => {
+    const score = o => { const t=o.items.reduce((s,i)=>s+i.qty,0); const p=Object.values(o.pulled).reduce((s,v)=>s+v,0); return t>0&&p>=t?2:p>0?0:1; };
+    return score(a) - score(b);
+  });
+
+  sorted.forEach(order => {
+    const totalQty = order.items.reduce((s,item) => s + item.qty, 0);
+    const pulledQty = Object.values(order.pulled).reduce((s,v) => s + v, 0);
+    const missingQty = totalQty - pulledQty;
+    const pct = totalQty > 0 ? Math.round(pulledQty / totalQty * 100) : 0;
+
+    if (search) {
+      const matchesOrder = order.id.toLowerCase().includes(search);
+      const matchesPart = order.items.some(item => item.partNumber.toLowerCase().includes(search) || item.name.toLowerCase().includes(search));
+      if (!matchesOrder && !matchesPart) return;
+    }
+
+    const color = pct === 100 ? '#10b981' : pct > 0 ? '#f59e0b' : '#94a3b8';
+    const barGrad = pct === 100 ? 'linear-gradient(90deg,#10b981,#059669)' : pct > 0 ? 'linear-gradient(90deg,#f59e0b,#d97706)' : '';
+    const badge = pct === 100
+      ? `<span style="background:#f0fdf4;color:#10b981;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">DONE</span>`
+      : pct > 0
+      ? `<span style="background:#fffbeb;color:#f59e0b;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">IN PROGRESS</span>`
+      : `<span style="background:#f8fafc;color:#94a3b8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">NOT STARTED</span>`;
+
+    const theme = order._customer ? ptCustomerTheme[order._customer] : null;
+    const cardBg = theme ? `background:${theme.bg};` : '';
+    const custBadge = theme
+      ? `<span style="background:${theme.accent};color:#fff;font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;letter-spacing:.3px;text-transform:uppercase">${theme.label}</span>`
+      : '';
+
+    container.innerHTML += `
+      <div class="pt-order-card" style="border-left-color:${color};${cardBg};position:relative" onclick="ptShowDetail('${order.id}')">
+        <button onclick="event.stopPropagation();ptDeleteOrder('${order.id}')" title="Delete order" style="position:absolute;top:8px;right:8px;background:none;border:none;cursor:pointer;color:#cbd5e1;font-size:14px;padding:4px 6px;border-radius:6px;transition:all .15s" onmouseover="this.style.color='#ef4444';this.style.background='#fef2f2'" onmouseout="this.style.color='#cbd5e1';this.style.background='none'"><i class="fas fa-times"></i></button>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-right:24px">
+          <div class="order-id">${order.id}</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            ${custBadge}
+            <div class="order-pct" style="color:${color}">${pct}%</div>
+          </div>
+        </div>
+        <div style="margin:8px 0 6px">${badge}</div>
+        <div class="progress-bar-wrap" style="height:6px;margin:0 0 10px">
+          <div class="progress-bar-fill" style="width:${pct}%;background:${barGrad};min-width:0"></div>
+        </div>
+        <div class="order-meta">
+          <span><i class="fas fa-cube" style="color:#94a3b8"></i> ${order.items.length} part${order.items.length !== 1 ? 's' : ''}</span>
+          <span><i class="fas fa-check" style="color:#10b981"></i> ${pulledQty} pulled</span>
+          ${missingQty > 0 ? `<span><i class="fas fa-clock" style="color:#ef4444"></i> ${missingQty} missing</span>` : ''}
+        </div>
+      </div>`;
+  });
+
+  // Render customer clear buttons
+  const custActions = document.getElementById('pt-customer-actions');
+  if (custActions) {
+    const customers = [...new Set(orders.map(o => o._customer).filter(Boolean))];
+    if (customers.length > 0) {
+      custActions.innerHTML = customers.map(c => {
+        const theme = ptCustomerTheme[c] || { accent: '#64748b', label: c };
+        const count = orders.filter(o => o._customer === c).length;
+        return `<button class="btn btn-sm" onclick="ptClearCustomer('${c}')" style="background:${theme.accent}11;color:${theme.accent};border:1.5px solid ${theme.accent}33;font-weight:700;font-size:12px"><i class="fas fa-times-circle"></i> Clear ${theme.label} (${count})</button>`;
+      }).join('');
+    } else {
+      custActions.innerHTML = '';
+    }
+  }
+}
+
+document.getElementById('pt-search').addEventListener('input', ptRenderOrders);
+
+function ptScan() {
+  const input = document.getElementById('pt-scan');
+  const raw = input.value.trim().toUpperCase();
+  if (!raw) return;
+  input.value = '';
+
+  const feedback = document.getElementById('pt-scan-feedback');
+  const lastEl = document.getElementById('pt-scan-last');
+
+  // Find matching parts across all orders that still have remaining qty
+  const hits = [];
+  Object.values(pt.orders).forEach(order => {
+    order.items.forEach(item => {
+      if (item.partNumber.toUpperCase() === raw) {
+        const pulled = order.pulled[item.partNumber] || 0;
+        if (pulled < item.qty) hits.push({ order, item });
+      }
+    });
+  });
+
+  if (hits.length === 0) {
+    let exists = false;
+    Object.values(pt.orders).forEach(order => {
+      order.items.forEach(item => { if (item.partNumber.toUpperCase() === raw) exists = true; });
+    });
+    const msg = exists ? `${raw} — already fully pulled` : `${raw} — not found in any order`;
+    feedback.style.cssText = 'display:flex;margin-top:12px;padding:12px 16px;border-radius:10px;font-weight:600;font-size:14px;align-items:center;gap:10px;background:#fef2f2;color:#dc2626;border-left:4px solid #ef4444';
+    feedback.innerHTML = `<i class="fas fa-times-circle"></i> ${msg}`;
+    lastEl.style.display = 'none';
+    setTimeout(() => { feedback.style.display = 'none'; }, 3000);
+    input.focus();
+    return;
+  }
+
+  // Pull from the first order with remaining qty
+  const { order, item } = hits[0];
+  order.pulled[item.partNumber] = (order.pulled[item.partNumber] || 0) + 1;
+  const pulled = order.pulled[item.partNumber];
+  const remaining = item.qty - pulled;
+
+  // Add to active pallet if one is selected
+  const palletSel = document.getElementById('pt-active-pallet');
+  const palletIdx = palletSel ? parseInt(palletSel.value) : NaN;
+  let palletMsg = '';
+  if (!isNaN(palletIdx) && pt.pallets[palletIdx]) {
+    const existingEntry = pt.pallets[palletIdx].items.find(e => e.partNumber === raw && e.orderId === order.id);
+    if (existingEntry) {
+      existingEntry.qty++;
+    } else {
+      pt.pallets[palletIdx].items.push({ partNumber: raw, name: item.name, qty: 1, orderId: order.id });
+    }
+    palletMsg = ` &nbsp;<span style="background:#eef2ff;color:#6366f1;padding:1px 8px;border-radius:10px;font-size:11px">Pallet ${palletIdx + 1}</span>`;
+    ptUpdatePalletSelects();
+    ptShowPallet();
+  }
+
+  feedback.style.cssText = 'display:flex;margin-top:12px;padding:12px 16px;border-radius:10px;font-weight:600;font-size:14px;align-items:center;gap:10px;background:#f0fdf4;color:#059669;border-left:4px solid #10b981';
+  feedback.innerHTML = `<i class="fas fa-check-circle"></i> ${raw} pulled → ${order.id}${palletMsg}`;
+  setTimeout(() => { feedback.style.display = 'none'; }, 2500);
+
+  lastEl.style.display = 'block';
+  lastEl.innerHTML = `<strong>${item.name}</strong> &nbsp;|&nbsp; Order: <strong>${order.id}</strong> &nbsp;|&nbsp; Pulled: <strong style="color:#10b981">${pulled}/${item.qty}</strong>${remaining > 0 ? ` &nbsp;|&nbsp; <span style="color:#f59e0b">${remaining} still needed</span>` : ' &nbsp;|&nbsp; <span style="color:#10b981">&#10003; Complete</span>'}`;
+
+  dashStats.picks++;
+  logActivity('chart-pie', `PT pulled: ${raw} → ${order.id} (${pulled}/${item.qty})`, '#10b981');
+
+  if (document.getElementById('pt-detail-card').style.display !== 'none' && pt.selectedOrder) {
+    ptShowDetail(pt.selectedOrder);
+  }
+  ptRenderOrders();
+  db.savePTSession(pt.orders, pt.pallets);
+  input.focus();
+}
+
+document.getElementById('pt-scan').addEventListener('keypress', e => { if (e.key === 'Enter') ptScan(); });
+
+// Create a new pallet and immediately select it in the scan bar
+function ptNewPalletAndSelect() {
+  pt.pallets.push({ items: [] });
+  const idx = pt.pallets.length - 1;
+  ptUpdatePalletSelects();
+  const scanSel = document.getElementById('pt-active-pallet');
+  if (scanSel) scanSel.value = idx;
+  // Also open the pallet management section
+  _ptPalletOpen = true;
+  document.getElementById('pt-pallet-body').style.display = 'block';
+  const chev = document.getElementById('pt-pallet-chevron');
+  if (chev) chev.style.transform = 'rotate(180deg)';
+  document.getElementById('pt-pallet-select').value = idx;
+  pt.selectedPallet = idx;
+  ptShowPallet();
+  // Flash the scan bar pallet select
+  const sel = document.getElementById('pt-active-pallet');
+  if (sel) { sel.style.borderColor = '#6366f1'; setTimeout(() => sel.style.borderColor = '#e2e8f0', 1000); }
+  db.savePTSession(pt.orders, pt.pallets);
+}
+
+function ptShowDetail(orderId) {
+  pt.selectedOrder = orderId;
+  const order = pt.orders[orderId];
+  if (!order) return;
+
+  const totalQty = order.items.reduce((s,item) => s + item.qty, 0);
+  const pulledQty = Object.values(order.pulled).reduce((s,v) => s + v, 0);
+  const missingQty = Math.max(0, totalQty - pulledQty);
+  const pct = totalQty > 0 ? Math.round(pulledQty / totalQty * 100) : 0;
+  const color = pct === 100 ? '#10b981' : pct > 0 ? '#f59e0b' : '#94a3b8';
+
+  document.getElementById('pt-detail-order').textContent = orderId;
+  document.getElementById('pt-detail-total').textContent = totalQty;
+  document.getElementById('pt-detail-fulfilled').textContent = pulledQty;
+  document.getElementById('pt-detail-missing').textContent = missingQty;
+  document.getElementById('pt-progress-pct').textContent = `${pct}%`;
+  document.getElementById('pt-progress-pct').style.color = color;
+
+  const bar = document.getElementById('pt-progress-ring-bar');
+  if (bar) {
+    bar.style.width = `${pct}%`;
+    bar.style.background = pct === 100 ? 'linear-gradient(90deg,#10b981,#059669)' : pct > 0 ? 'linear-gradient(90deg,#f59e0b,#d97706)' : '';
+  }
+
+  const tbody = document.getElementById('pt-detail-table');
+  tbody.innerHTML = '';
+  order.items.forEach(item => {
+    const pulled = order.pulled[item.partNumber] || 0;
+    const missing = Math.max(0, item.qty - pulled);
+    const itemPct = item.qty > 0 ? Math.round(pulled / item.qty * 100) : 0;
+    const status = missing <= 0
+      ? '<span style="display:inline-flex;align-items:center;gap:4px;background:#f0fdf4;color:#059669;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px"><i class="fas fa-check"></i> Complete</span>'
+      : `<span style="display:inline-flex;align-items:center;gap:4px;background:#fffbeb;color:#d97706;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px"><i class="fas fa-clock"></i> ${missing} left</span>`;
+    tbody.innerHTML += `<tr>
+      <td style="font-weight:600">${item.partNumber}</td>
+      <td>${item.name}</td>
+      <td>${item.qty}</td>
+      <td>${pulled}</td>
+      <td>${missing}</td>
+      <td>${status}</td>
+    </tr>`;
+  });
+
+  // Switch views — hide list, show detail
+  document.getElementById('pt-orders-card').style.display = 'none';
+  document.getElementById('pt-detail-card').style.display = 'block';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function ptCloseDetail() {
+  document.getElementById('pt-detail-card').style.display = 'none';
+  document.getElementById('pt-orders-card').style.display = 'block';
+  pt.selectedOrder = null;
+  ptRenderOrders();
+}
+
+let _ptPalletOpen = false;
+function ptTogglePallets() {
+  _ptPalletOpen = !_ptPalletOpen;
+  document.getElementById('pt-pallet-body').style.display = _ptPalletOpen ? 'block' : 'none';
+  const chev = document.getElementById('pt-pallet-chevron');
+  if (chev) chev.style.transform = _ptPalletOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+}
+
+function ptAddPallet() {
+  _ptPalletOpen = true;
+  document.getElementById('pt-pallet-body').style.display = 'block';
+  const chev = document.getElementById('pt-pallet-chevron');
+  if (chev) chev.style.transform = 'rotate(180deg)';
+  pt.pallets.push({ items: [] });
+  const idx = pt.pallets.length - 1;
+  ptUpdatePalletSelects();
+  document.getElementById('pt-pallet-select').value = idx;
+  pt.selectedPallet = idx;
+  ptShowPallet();
+}
+
+/* Delete a single order from PT and remove matching data from Label Maker */
+async function ptDeleteOrder(orderId) {
+  const order = pt.orders[orderId];
+  if (!order) return;
+  const ok = await showConfirm('Delete Order', `Remove order ${orderId} from the tracker? This will also remove its labels from the Label Maker.`, 'Delete', 'btn-danger');
+  if (!ok) return;
+
+  const customer = order._customer;
+  delete pt.orders[orderId];
+
+  // Remove matching rows from Label Maker
+  ptRemoveFromLabelMaker(orderId, customer);
+
+  ptRenderOrders();
+  db.savePTSession(pt.orders, pt.pallets);
+
+  // If detail view was showing this order, go back
+  if (pt.selectedOrder === orderId) ptCloseDetail();
+}
+
+/* Clear all orders for a given customer from PT and Label Maker */
+async function ptClearCustomer(customer) {
+  const label = ptCustomerTheme[customer] ? ptCustomerTheme[customer].label : customer;
+  const customerOrders = Object.values(pt.orders).filter(o => o._customer === customer);
+  if (!customerOrders.length) return;
+  const ok = await showConfirm(`Clear ${label}`, `Remove all ${customerOrders.length} ${label} order(s) from the tracker and Label Maker?`, `Clear ${label}`, 'btn-danger');
+  if (!ok) return;
+
+  const orderIds = customerOrders.map(o => o.id);
+  orderIds.forEach(id => delete pt.orders[id]);
+
+  // Remove ALL data for this customer from Label Maker
+  lm.csvData = lm.csvData.filter(r => r._customer !== customer);
+  lm.queue   = lm.queue.filter(r => r._customer !== customer);
+  lm.printed = lm.printed.filter(r => r._customer !== customer);
+  lmRefreshQueue();
+  db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+
+  ptRenderOrders();
+  db.savePTSession(pt.orders, pt.pallets);
+
+  if (pt.selectedOrder && !pt.orders[pt.selectedOrder]) ptCloseDetail();
+}
+
+/* Helper: remove a specific order's rows from Label Maker.
+   O'Reilly PT orders are keyed by DC, others by orderNo. */
+function ptRemoveFromLabelMaker(orderId, customer) {
+  const matchOrder = r => {
+    if (r._customer !== customer) return false;
+    const id = String(orderId).toUpperCase();
+    // O'Reilly groups by DC in PT
+    if (customer === 'oreilly' && r.dc) return String(r.dc).toUpperCase() === id;
+    return String(r.orderNo || '').toUpperCase() === id;
+  };
+  lm.csvData = lm.csvData.filter(r => !matchOrder(r));
+  lm.queue   = lm.queue.filter(r => !matchOrder(r));
+  lm.printed = lm.printed.filter(r => !matchOrder(r));
+  lmRefreshQueue();
+  db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+}
+
+async function ptReset() {
+  const ok = await showConfirm('Clear All Data', 'This will remove all orders, scans, and pallets.', 'Clear All', 'btn-danger');
+  if (!ok) return;
+  pt.orders = {}; pt.pallets = []; pt.selectedOrder = null; pt.selectedPallet = 0;
+  ptUpdatePalletSelects();
+  ['pt-orders-card','pt-scan-card','pt-detail-card'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+  document.getElementById('pt-summary').style.display = 'none';
+  hideMsg('pt-csv-status');
+  db.savePTSession({}, []);
+}
+
+async function ptLoadFromDB() {
+  const row = await db.loadPTSession();
+  if (!row) return;
+  if (row.orders && Object.keys(row.orders).length > 0) {
+    pt.orders = row.orders;
+    if (Array.isArray(row.pallets)) pt.pallets = row.pallets;
+    document.getElementById('pt-orders-card').style.display = 'block';
+    document.getElementById('pt-scan-card').style.display = 'block';
+    ptUpdatePalletSelects();
+    ptRenderOrders();
+  }
+}
+
+async function ptClearPallets() {
+  const ok = await showConfirm('Clear All Pallets', 'This will remove all pallets and their contents.', 'Clear All', 'btn-danger');
+  if (!ok) return;
+  pt.pallets = [];
+  ptUpdatePalletSelects();
+  document.getElementById('pt-pallet-table').innerHTML = '';
+  db.savePTSession(pt.orders, []);
+}
+
+// Keeps both the detail-section select AND the scan-bar select in sync
+function ptUpdatePalletSelects() {
+  const opts = `<option value="">— track only —</option>` +
+    pt.pallets.map((p,i) => `<option value="${i}">Pallet ${i+1} (${p.items.length} item${p.items.length!==1?'s':''})</option>`).join('');
+  const detailSel = document.getElementById('pt-pallet-select');
+  const scanSel   = document.getElementById('pt-active-pallet');
+  if (detailSel) detailSel.innerHTML = pt.pallets.map((p,i) => `<option value="${i}">Pallet ${i+1} (${p.items.length} item${p.items.length!==1?'s':''})</option>`).join('');
+  if (scanSel)   scanSel.innerHTML   = opts;
+}
+
+function ptShowPallet() {
+  pt.selectedPallet = parseInt(document.getElementById('pt-pallet-select').value) || 0;
+  const pallet = pt.pallets[pt.selectedPallet];
+  if (!pallet) { document.getElementById('pt-pallet-table').innerHTML = ''; return; }
+  const tbody = document.getElementById('pt-pallet-table');
+  tbody.innerHTML = '';
+  pallet.items.forEach((item, i) => {
+    tbody.innerHTML += `<tr>
+      <td>${item.partNumber}</td>
+      <td>${item.name}</td>
+      <td>${item.qty}</td>
+      <td><button class="btn btn-danger" onclick="ptRemoveFromPallet(${i})" style="padding:4px 10px;font-size:11px"><i class="fas fa-times"></i></button></td>
+    </tr>`;
+  });
+}
+
+function ptAddPartToPallet() {
+  if (!pt.pallets.length) { ptAddPallet(); }
+  const partNumber = document.getElementById('pt-pallet-part').value.trim().toUpperCase();
+  const qty = parseInt(document.getElementById('pt-pallet-qty').value) || 1;
+  if (!partNumber) return;
+  if (qty <= 0) return;
+
+  // Find the part name from orders
+  let name = '';
+  Object.values(pt.orders).forEach(order => {
+    const item = order.items.find(it => it.partNumber.toUpperCase() === partNumber);
+    if (item) name = item.name;
+  });
+
+  // Mark as pulled in orders
+  Object.values(pt.orders).forEach(order => {
+    const item = order.items.find(it => it.partNumber.toUpperCase() === partNumber);
+    if (item) {
+      order.pulled[item.partNumber] = (order.pulled[item.partNumber] || 0) + qty;
+    }
+  });
+
+  pt.pallets[pt.selectedPallet].items.push({ partNumber, name, qty });
+  ptUpdatePalletSelects();
+  ptShowPallet();
+  ptRenderOrders();
+  if (pt.selectedOrder) ptShowDetail(pt.selectedOrder);
+  document.getElementById('pt-pallet-part').value = '';
+  document.getElementById('pt-pallet-qty').value = '1';
+  document.getElementById('pt-pallet-part').focus();
+}
+
+document.getElementById('pt-pallet-part').addEventListener('keypress', e => { if (e.key === 'Enter') ptAddPartToPallet(); });
+
+function ptRemoveFromPallet(index) {
+  const pallet = pt.pallets[pt.selectedPallet];
+  if (!pallet) return;
+  const item = pallet.items[index];
+  // Undo the pulled count
+  Object.values(pt.orders).forEach(order => {
+    const orderItem = order.items.find(it => it.partNumber.toUpperCase() === item.partNumber.toUpperCase());
+    if (orderItem) {
+      order.pulled[orderItem.partNumber] = Math.max(0, (order.pulled[orderItem.partNumber] || 0) - item.qty);
+    }
+  });
+  pallet.items.splice(index, 1);
+  ptUpdatePalletSelects();
+  ptShowPallet();
+  ptRenderOrders();
+  if (pt.selectedOrder) ptShowDetail(pt.selectedOrder);
+}
+
+function ptExportMissing() {
+  let csv = 'Order,Part,Name,Missing\n';
+  Object.values(pt.orders).forEach(order => {
+    order.items.forEach(item => {
+      const pulled = order.pulled[item.partNumber] || 0;
+      const missing = item.qty - pulled;
+      if (missing > 0) csv += `"${order.id}","${item.partNumber}","${item.name}",${missing}\n`;
+    });
+  });
+  downloadBlob(csv, `missing_items_${todayStr()}.csv`);
+}
+
+function ptExportPulled() {
+  let csv = 'Order,Pallet #,Part,Name,Qty\n';
+  pt.pallets.forEach((pallet, pi) => {
+    pallet.items.forEach(item => {
+      // Find which order this part belongs to
+      let orderId = '';
+      Object.values(pt.orders).forEach(order => {
+        if (order.items.some(it => it.partNumber.toUpperCase() === item.partNumber.toUpperCase())) orderId = order.id;
+      });
+      csv += `"${orderId}",${pi+1},"${item.partNumber}","${item.name}",${item.qty}\n`;
+    });
+  });
+  downloadBlob(csv, `pulled_items_${todayStr()}.csv`);
+}
+
+/* ================================================================
+   INIT
+   ================================================================ */
+// Pre-load voices for speech synthesis
+if (typeof speechSynthesis !== 'undefined') speechSynthesis.getVoices();
+
+</script>
+</body>
+</html>
