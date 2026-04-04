@@ -1328,24 +1328,29 @@ function dashUpdateStats() {
   setEl('dash-s-queue', lm && lm.queue ? lm.queue.length : 0);
   setEl('dash-feed-count', activityLog.length);
 
-  // ---- Workload from Progress Tracker ----
+  // ---- Workload from Progress Tracker (order-based, not unit-based) ----
   const orders = Object.values(pt.orders);
   const totalOrders = orders.length;
 
-  let totalUnits = 0, pulledUnits = 0;
-  let completeOrders = 0, inProgressOrders = 0, notStartedOrders = 0;
-
-  orders.forEach(o => {
+  // Classify each order
+  const orderStatus = o => {
     const t = o.items.reduce((s, i) => s + i.qty, 0);
     const p = Object.values(o.pulled).reduce((s, v) => s + v, 0);
-    totalUnits += t;
-    pulledUnits += p;
-    if (t > 0 && p >= t) completeOrders++;
-    else if (p > 0) inProgressOrders++;
+    if (t > 0 && p >= t) return 'complete';
+    if (p > 0) return 'progress';
+    return 'notstarted';
+  };
+
+  let completeOrders = 0, inProgressOrders = 0, notStartedOrders = 0;
+  orders.forEach(o => {
+    const s = orderStatus(o);
+    if (s === 'complete') completeOrders++;
+    else if (s === 'progress') inProgressOrders++;
     else notStartedOrders++;
   });
 
-  const overallPct = totalUnits > 0 ? Math.round(pulledUnits / totalUnits * 100) : 0;
+  // Progress ring = % of orders complete
+  const overallPct = totalOrders > 0 ? Math.round(completeOrders / totalOrders * 100) : 0;
 
   setEl('dash-wo-total', totalOrders);
   setEl('dash-wo-complete', completeOrders);
@@ -1365,12 +1370,11 @@ function dashUpdateStats() {
   }
 
   // Pallets
-  const activePallets = pt.pallets.filter(p => p.items.length > 0).length;
   const packedUnits = pt.pallets.reduce((s, p) => s + p.items.reduce((s2, i) => s2 + i.qty, 0), 0);
   setEl('dash-wo-pallets', pt.pallets.length);
   setEl('dash-wo-packed', packedUnits);
 
-  // Customer breakdown
+  // Customer breakdown (order counts, not unit counts)
   const custContainer = document.getElementById('dash-cust-rows');
   if (custContainer) {
     const custTheme = {
@@ -1383,31 +1387,39 @@ function dashUpdateStats() {
     if (customers.length === 0 && totalOrders === 0) {
       custContainer.innerHTML = '<div style="text-align:center;padding:12px 0;color:#94a3b8;font-size:12px">No orders loaded</div>';
     } else {
-      // Include uncategorized orders
       const groups = [];
       customers.forEach(c => {
         const custOrders = orders.filter(o => o._customer === c);
-        const cTotal = custOrders.reduce((s, o) => s + o.items.reduce((s2, i) => s2 + i.qty, 0), 0);
-        const cPulled = custOrders.reduce((s, o) => s + Object.values(o.pulled).reduce((s2, v) => s2 + v, 0), 0);
-        const cPct = cTotal > 0 ? Math.round(cPulled / cTotal * 100) : 0;
+        const cComplete = custOrders.filter(o => orderStatus(o) === 'complete').length;
+        const cProgress = custOrders.filter(o => orderStatus(o) === 'progress').length;
+        const cTotal = custOrders.length;
+        const cPct = cTotal > 0 ? Math.round(cComplete / cTotal * 100) : 0;
         const theme = custTheme[c] || { bg: '#64748b', label: c };
-        groups.push({ label: theme.label, bg: theme.bg, count: custOrders.length, pct: cPct, pulled: cPulled, total: cTotal });
+        groups.push({ label: theme.label, bg: theme.bg, total: cTotal, complete: cComplete, progress: cProgress, pct: cPct });
       });
 
       const uncategorized = orders.filter(o => !o._customer);
       if (uncategorized.length) {
-        const uTotal = uncategorized.reduce((s, o) => s + o.items.reduce((s2, i) => s2 + i.qty, 0), 0);
-        const uPulled = uncategorized.reduce((s, o) => s + Object.values(o.pulled).reduce((s2, v) => s2 + v, 0), 0);
-        const uPct = uTotal > 0 ? Math.round(uPulled / uTotal * 100) : 0;
-        groups.push({ label: 'Other', bg: '#64748b', count: uncategorized.length, pct: uPct, pulled: uPulled, total: uTotal });
+        const uComplete = uncategorized.filter(o => orderStatus(o) === 'complete').length;
+        const uProgress = uncategorized.filter(o => orderStatus(o) === 'progress').length;
+        const uPct = uncategorized.length > 0 ? Math.round(uComplete / uncategorized.length * 100) : 0;
+        groups.push({ label: 'Other', bg: '#64748b', total: uncategorized.length, complete: uComplete, progress: uProgress, pct: uPct });
       }
 
-      custContainer.innerHTML = groups.map(g => `
+      custContainer.innerHTML = groups.map(g => {
+        // Bar shows complete + in-progress as stacked
+        const completePct = g.total > 0 ? (g.complete / g.total * 100) : 0;
+        const progressPct = g.total > 0 ? (g.progress / g.total * 100) : 0;
+        return `
         <div class="dash-cust-row">
           <div class="dash-cust-badge" style="background:${g.bg}">${g.label}</div>
-          <div class="dash-cust-bar"><div class="dash-cust-bar-fill" style="width:${g.pct}%;background:${g.bg}"></div></div>
-          <div class="dash-cust-nums">${g.pulled}/${g.total} <span style="color:${g.pct===100?'#10b981':'#94a3b8'};font-size:11px">(${g.pct}%)</span></div>
-        </div>`).join('');
+          <div class="dash-cust-bar" style="position:relative">
+            <div class="dash-cust-bar-fill" style="width:${completePct + progressPct}%;background:${g.bg};opacity:.3;position:absolute;top:0;left:0;height:100%"></div>
+            <div class="dash-cust-bar-fill" style="width:${completePct}%;background:${g.bg};position:relative;z-index:1"></div>
+          </div>
+          <div class="dash-cust-nums">${g.complete}/${g.total} orders <span style="color:${g.pct===100?'#10b981':'#94a3b8'};font-size:11px">(${g.pct}%)</span></div>
+        </div>`;
+      }).join('');
     }
   }
 }
