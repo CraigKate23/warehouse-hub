@@ -766,7 +766,6 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
       <div style="min-width:160px">
         <label style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:5px">Active Pallet</label>
         <select id="pt-active-pallet" style="padding:13px 12px;border:2px solid #e2e8f0;border-radius:10px;font-size:14px;font-weight:600;font-family:inherit;outline:none;background:#fff;min-width:160px">
-          <option value="">— track only —</option>
         </select>
       </div>
       <button class="btn btn-success" onclick="ptNewPalletAndSelect()" style="align-self:flex-end;white-space:nowrap"><i class="fas fa-plus"></i> New Pallet</button>
@@ -3500,8 +3499,14 @@ async function ptLoadFromDB() {
   if (row.orders && Object.keys(row.orders).length > 0) {
     pt.orders = row.orders;
     if (Array.isArray(row.pallets)) pt.pallets = row.pallets;
-    document.getElementById('pt-orders-card').style.display = 'block';
     document.getElementById('pt-scan-card').style.display = 'block';
+    // Preserve detail view if user is viewing an order
+    const inDetail = document.getElementById('pt-detail-card').style.display !== 'none' && pt.selectedOrder;
+    if (!inDetail) {
+      document.getElementById('pt-orders-card').style.display = 'block';
+    } else {
+      ptShowDetail(pt.selectedOrder);
+    }
     ptUpdatePalletSelects();
     ptRenderOrders();
     ptRefreshLivePallet();
@@ -3519,12 +3524,15 @@ async function ptClearPallets() {
 
 // Keeps both the detail-section select AND the scan-bar select in sync
 function ptUpdatePalletSelects() {
-  const opts = `<option value="">— track only —</option>` +
-    pt.pallets.map((p,i) => `<option value="${i}">Pallet ${i+1} (${p.items.length} item${p.items.length!==1?'s':''})</option>`).join('');
+  // Auto-create Pallet 1 if none exist
+  if (pt.pallets.length === 0 && Object.keys(pt.orders).length > 0) {
+    pt.pallets.push({ items: [] });
+  }
+  const palletOpts = pt.pallets.map((p,i) => `<option value="${i}">Pallet ${i+1} (${p.items.length} item${p.items.length!==1?'s':''})</option>`).join('');
   const detailSel = document.getElementById('pt-pallet-select');
   const scanSel   = document.getElementById('pt-active-pallet');
-  if (detailSel) detailSel.innerHTML = pt.pallets.map((p,i) => `<option value="${i}">Pallet ${i+1} (${p.items.length} item${p.items.length!==1?'s':''})</option>`).join('');
-  if (scanSel)   scanSel.innerHTML   = opts;
+  if (detailSel) detailSel.innerHTML = palletOpts;
+  if (scanSel)   scanSel.innerHTML   = palletOpts;
 }
 
 function ptShowPallet() {
