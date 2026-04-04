@@ -823,44 +823,6 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
     <div id="pt-csv-status" class="status-msg" style="display:none"></div>
   </div>
 
-  <!-- Scan bar — shown once CSV loaded, always visible -->
-  <div class="card" id="pt-scan-card" style="display:none">
-    <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:220px">
-        <label style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:5px">Scan Part Number</label>
-        <input type="text" id="pt-scan" placeholder="Scan or type a part number…" class="scan-field" style="width:100%">
-      </div>
-      <div style="min-width:160px">
-        <label style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:5px">Active Pallet</label>
-        <select id="pt-active-pallet" style="padding:13px 12px;border:2px solid #e2e8f0;border-radius:10px;font-size:14px;font-weight:600;font-family:inherit;outline:none;background:#fff;min-width:160px">
-        </select>
-      </div>
-      <button class="btn btn-success" onclick="ptNewPalletAndSelect()" style="align-self:flex-end;white-space:nowrap"><i class="fas fa-plus"></i> New Pallet</button>
-    </div>
-    <div id="pt-scan-feedback" style="display:none;margin-top:12px;padding:12px 16px;border-radius:10px;font-weight:600;font-size:14px;align-items:center;gap:10px"></div>
-    <div id="pt-scan-last" style="display:none;margin-top:10px;padding:10px 14px;background:#f8fafc;border-radius:9px;font-size:13px;color:#475569;border:1px solid #e2e8f0"></div>
-  </div>
-
-  <!-- Live Pallet Contents (visible when a pallet is active) -->
-  <div class="card" id="pt-live-pallet-card" style="display:none">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
-      <div class="card-title" style="margin:0"><i class="fas fa-pallet"></i> <span id="pt-live-pallet-label">Pallet 1</span> <span id="pt-live-pallet-count" style="font-weight:500;color:#94a3b8;font-size:13px"></span></div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-info btn-sm" onclick="ptDownloadPackingList()"><i class="fas fa-file-download"></i> Packing List</button>
-      </div>
-    </div>
-    <div style="overflow-x:auto">
-      <table class="data-table" id="pt-live-pallet-table">
-        <thead><tr><th>Part #</th><th>Name</th><th>Order</th><th>Qty</th></tr></thead>
-        <tbody id="pt-live-pallet-tbody"></tbody>
-      </table>
-    </div>
-    <div id="pt-live-pallet-empty" style="text-align:center;padding:20px;color:#94a3b8;font-size:13px">
-      <i class="fas fa-barcode" style="font-size:20px;display:block;margin-bottom:6px"></i>
-      Scan items to add them to this pallet
-    </div>
-  </div>
-
   <!-- Orders list view -->
   <div id="pt-orders-card" style="display:none">
     <!-- Summary bar -->
@@ -952,6 +914,44 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
       <thead><tr><th>Part #</th><th>Name</th><th>Ordered</th><th>Pulled</th><th>Missing</th><th>Status</th></tr></thead>
       <tbody id="pt-detail-table"></tbody>
     </table>
+
+    <!-- Scan bar (inside order detail) -->
+    <div style="margin-top:24px;padding-top:20px;border-top:2px solid #e2e8f0">
+      <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <label style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:5px">Scan Part Number</label>
+          <input type="text" id="pt-scan" placeholder="Scan or type a part number…" class="scan-field" style="width:100%">
+        </div>
+        <div style="min-width:160px">
+          <label style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:5px">Active Pallet</label>
+          <select id="pt-active-pallet" style="padding:13px 12px;border:2px solid #e2e8f0;border-radius:10px;font-size:14px;font-weight:600;font-family:inherit;outline:none;background:#fff;min-width:160px">
+          </select>
+        </div>
+        <button class="btn btn-success" onclick="ptNewPalletAndSelect()" style="align-self:flex-end;white-space:nowrap"><i class="fas fa-plus"></i> New Pallet</button>
+      </div>
+      <div id="pt-scan-feedback" style="display:none;margin-top:12px;padding:12px 16px;border-radius:10px;font-weight:600;font-size:14px;align-items:center;gap:10px"></div>
+      <div id="pt-scan-last" style="display:none;margin-top:10px;padding:10px 14px;background:#f8fafc;border-radius:9px;font-size:13px;color:#475569;border:1px solid #e2e8f0"></div>
+    </div>
+  </div>
+
+  <!-- Live Pallet Contents (visible when inside an order and a pallet is active) -->
+  <div class="card" id="pt-live-pallet-card" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <div class="card-title" style="margin:0"><i class="fas fa-pallet"></i> <span id="pt-live-pallet-label">Pallet 1</span> <span id="pt-live-pallet-count" style="font-weight:500;color:#94a3b8;font-size:13px"></span></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-info btn-sm" onclick="ptDownloadPackingList()"><i class="fas fa-file-download"></i> Packing List</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="data-table" id="pt-live-pallet-table">
+        <thead><tr><th>Part #</th><th>Name</th><th>Order</th><th>Qty</th></tr></thead>
+        <tbody id="pt-live-pallet-tbody"></tbody>
+      </table>
+    </div>
+    <div id="pt-live-pallet-empty" style="text-align:center;padding:20px;color:#94a3b8;font-size:13px">
+      <i class="fas fa-barcode" style="font-size:20px;display:block;margin-bottom:6px"></i>
+      Scan items to add them to this pallet
+    </div>
   </div>
 
   <!-- keep legacy SVG ring hidden (id referenced in JS) -->
@@ -2385,7 +2385,6 @@ function lmSyncToProgressTracker(rows, customer) {
 
   if (Object.keys(pt.orders).length > 0) {
     document.getElementById('pt-orders-card').style.display = 'block';
-    document.getElementById('pt-scan-card').style.display = 'block';
     ptRenderOrders();
   }
 }
@@ -3150,8 +3149,6 @@ function ptLoadCSV(file) {
       if (!orderCount) throw new Error('No valid orders found.');
       showMsg('pt-csv-status', `Loaded ${orderCount} orders with ${itemCount} items.`, 'success');
       document.getElementById('pt-orders-card').style.display = 'block';
-      document.getElementById('pt-scan-card').style.display = 'block';
-      document.getElementById('pt-scan').focus();
       ptRenderOrders();
       db.savePTSession(pt.orders, pt.pallets);
     } catch(err) { showMsg('pt-csv-status', err.message, 'error'); }
@@ -3280,8 +3277,6 @@ function ptLoadXLSX(file) {
       if (!orderCount) throw new Error('No valid orders found. Check that file has columns for Part/Material and Qty.');
       showMsg('pt-csv-status', `Excel loaded — ${orderCount} orders with ${itemCount} items.`, 'success');
       document.getElementById('pt-orders-card').style.display = 'block';
-      document.getElementById('pt-scan-card').style.display = 'block';
-      document.getElementById('pt-scan').focus();
       ptRenderOrders();
       db.savePTSession(pt.orders, pt.pallets);
     } catch(err) { showMsg('pt-csv-status', err.message, 'error'); }
@@ -3402,23 +3397,29 @@ function ptScan() {
   const feedback = document.getElementById('pt-scan-feedback');
   const lastEl = document.getElementById('pt-scan-last');
 
-  // Find matching parts across all orders that still have remaining qty
-  const hits = [];
-  Object.values(pt.orders).forEach(order => {
-    order.items.forEach(item => {
-      if (item.partNumber.toUpperCase() === raw) {
-        const pulled = order.pulled[item.partNumber] || 0;
-        if (pulled < item.qty) hits.push({ order, item });
-      }
-    });
+  // Must be inside an order detail view
+  if (!pt.selectedOrder || !pt.orders[pt.selectedOrder]) {
+    ptPlaySound('error');
+    feedback.style.cssText = 'display:flex;margin-top:12px;padding:12px 16px;border-radius:10px;font-weight:600;font-size:14px;align-items:center;gap:10px;background:#fef2f2;color:#dc2626;border-left:4px solid #ef4444';
+    feedback.innerHTML = `<i class="fas fa-times-circle"></i> No order selected`;
+    setTimeout(() => { feedback.style.display = 'none'; }, 3000);
+    input.focus();
+    return;
+  }
+
+  // Only match against the selected order
+  const order = pt.orders[pt.selectedOrder];
+  let hit = null;
+  order.items.forEach(item => {
+    if (item.partNumber.toUpperCase() === raw) {
+      const pulled = order.pulled[item.partNumber] || 0;
+      if (pulled < item.qty) hit = { order, item };
+    }
   });
 
-  if (hits.length === 0) {
-    let exists = false;
-    Object.values(pt.orders).forEach(order => {
-      order.items.forEach(item => { if (item.partNumber.toUpperCase() === raw) exists = true; });
-    });
-    const msg = exists ? `${raw} — already fully pulled` : `${raw} — not found in any order`;
+  if (!hit) {
+    const exists = order.items.some(item => item.partNumber.toUpperCase() === raw);
+    const msg = exists ? `${raw} — already fully pulled for this order` : `${raw} — not in this order`;
     ptPlaySound('error');
     feedback.style.cssText = 'display:flex;margin-top:12px;padding:12px 16px;border-radius:10px;font-weight:600;font-size:14px;align-items:center;gap:10px;background:#fef2f2;color:#dc2626;border-left:4px solid #ef4444';
     feedback.innerHTML = `<i class="fas fa-times-circle"></i> ${msg}`;
@@ -3428,8 +3429,7 @@ function ptScan() {
     return;
   }
 
-  // Pull from the first order with remaining qty
-  const { order, item } = hits[0];
+  const { item } = hit;
   order.pulled[item.partNumber] = (order.pulled[item.partNumber] || 0) + 1;
   const pulled = order.pulled[item.partNumber];
   const remaining = item.qty - pulled;
@@ -3537,14 +3537,20 @@ function ptShowDetail(orderId) {
     </tr>`;
   });
 
-  // Switch views — hide list, show detail
+  // Switch views — hide list, show detail + live pallet
   document.getElementById('pt-orders-card').style.display = 'none';
   document.getElementById('pt-detail-card').style.display = 'block';
+  const livePallet = document.getElementById('pt-live-pallet-card');
+  if (livePallet) livePallet.style.display = 'block';
+  ptRefreshLivePallet();
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  setTimeout(() => { const scanInput = document.getElementById('pt-scan'); if (scanInput) scanInput.focus(); }, 100);
 }
 
 function ptCloseDetail() {
   document.getElementById('pt-detail-card').style.display = 'none';
+  const livePallet = document.getElementById('pt-live-pallet-card');
+  if (livePallet) livePallet.style.display = 'none';
   document.getElementById('pt-orders-card').style.display = 'block';
   pt.selectedOrder = null;
   ptRenderOrders();
@@ -3667,7 +3673,7 @@ async function ptReset() {
   if (!ok) return;
   pt.orders = {}; pt.pallets = []; pt.selectedOrder = null; pt.selectedPallet = 0;
   ptUpdatePalletSelects();
-  ['pt-orders-card','pt-scan-card','pt-detail-card'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+  ['pt-orders-card','pt-detail-card','pt-live-pallet-card'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
   document.getElementById('pt-summary').style.display = 'none';
   hideMsg('pt-csv-status');
   db.savePTSession({}, []);
@@ -3697,7 +3703,6 @@ async function ptLoadFromDB() {
     });
     if (orphansRemoved) db.savePTSession(pt.orders, pt.pallets);
 
-    document.getElementById('pt-scan-card').style.display = 'block';
     // Preserve detail view if user is viewing an order
     const inDetail = document.getElementById('pt-detail-card').style.display !== 'none' && pt.selectedOrder;
     if (!inDetail) {
