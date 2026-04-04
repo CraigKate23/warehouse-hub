@@ -3679,6 +3679,24 @@ async function ptLoadFromDB() {
   if (row.orders && Object.keys(row.orders).length > 0) {
     pt.orders = row.orders;
     if (Array.isArray(row.pallets)) pt.pallets = row.pallets;
+
+    // Clean up orphaned pallet items (from orders deleted before cleanup code existed)
+    const validOrderIds = new Set(Object.keys(pt.orders));
+    const validParts = new Set();
+    Object.values(pt.orders).forEach(o => o.items.forEach(i => validParts.add(i.partNumber.toUpperCase())));
+    let orphansRemoved = false;
+    pt.pallets.forEach(p => {
+      const before = p.items.length;
+      p.items = p.items.filter(i => {
+        if (i.orderId && validOrderIds.has(i.orderId)) return true;
+        if (i.orderId && !validOrderIds.has(i.orderId)) return false;
+        // No orderId — keep if part exists in any current order
+        return validParts.has(i.partNumber.toUpperCase());
+      });
+      if (p.items.length < before) orphansRemoved = true;
+    });
+    if (orphansRemoved) db.savePTSession(pt.orders, pt.pallets);
+
     document.getElementById('pt-scan-card').style.display = 'block';
     // Preserve detail view if user is viewing an order
     const inDetail = document.getElementById('pt-detail-card').style.display !== 'none' && pt.selectedOrder;
