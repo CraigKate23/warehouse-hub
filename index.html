@@ -27,13 +27,13 @@
 <style>
 /* ============ PRINT STYLES (Zebra 4x6) ============ */
 @media screen {
-  /* Keep print frame rendered but invisible so JsBarcode can draw on it */
-  #lm-print-frame { position: fixed !important; left: -10000px !important; top: 0 !important; width: 4in !important; height: 6in !important; }
+  /* Keep print frames rendered but invisible so JsBarcode can draw on them */
+  #lm-print-frame, #dsdlm-print-frame { position: fixed !important; left: -10000px !important; top: 0 !important; width: 4in !important; height: 6in !important; }
 }
 @media print {
   body * { visibility: hidden !important; }
-  #lm-print-frame, #lm-print-frame * { visibility: visible !important; }
-  #lm-print-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: 4in !important; height: 6in !important; margin: 0 !important; padding: 0 !important; }
+  #lm-print-frame, #lm-print-frame *, #dsdlm-print-frame, #dsdlm-print-frame * { visibility: visible !important; }
+  #lm-print-frame, #dsdlm-print-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: 4in !important; height: 6in !important; margin: 0 !important; padding: 0 !important; }
   @page { size: 4in 6in; margin: 0; }
 }
 
@@ -332,6 +332,7 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
 
     <div class="nav-category">Label Makers</div>
     <div class="nav-item" data-module="label-maker"><i class="fas fa-print"></i> Label Maker</div>
+    <div class="nav-item" data-module="dsd-label-maker"><i class="fas fa-tags"></i> DSD Label Maker</div>
     <div class="nav-item" data-module="progress-tracker"><i class="fas fa-chart-pie"></i> Progress Tracker</div>
 
     <div class="nav-category">Converters &amp; Tools</div>
@@ -702,6 +703,56 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
       </div>
     </div>
   </div>
+</section>
+
+<!-- ==================== DSD LABEL MAKER ==================== -->
+<section id="dsd-label-maker" class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#fef3c7;color:#d97706"><i class="fas fa-tags"></i></div>
+    <div><div class="module-title">DSD Label Maker</div><div class="module-sub">Generate 4×6 box labels from DSD Tracker orders — 2 labels per 20 pieces</div></div>
+    <button class="btn btn-primary" style="margin-left:auto" onclick="dsdLmPrintAll()" id="dsdlm-print-all-btn" disabled><i class="fas fa-print"></i> Print All</button>
+  </div>
+
+  <div class="card" id="dsdlm-empty-state" style="text-align:center;padding:40px 20px;color:#94a3b8">
+    <i class="fas fa-inbox" style="font-size:48px;margin-bottom:16px;display:block"></i>
+    <div style="font-size:16px;font-weight:600;color:#64748b">No DSD orders loaded</div>
+    <div style="font-size:13px;margin-top:6px">Upload an order file in the <strong>DSD Tracker</strong> — labels will appear here automatically.</div>
+  </div>
+
+  <div class="card" id="dsdlm-summary-card" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="font-size:16px;font-weight:700;color:#1e293b"><i class="fas fa-clipboard-list" style="color:#d97706;margin-right:8px"></i>Label Summary</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-success" onclick="dsdLmDownloadAllZPL()"><i class="fas fa-download"></i> Download ZPL</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px">
+      <div style="background:#f8fafc;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:24px;font-weight:800;color:#1e293b" id="dsdlm-total-pos">0</div>
+        <div style="font-size:11px;color:#64748b;font-weight:600">POs</div>
+      </div>
+      <div style="background:#f8fafc;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:24px;font-weight:800;color:#1e293b" id="dsdlm-total-pcs">0</div>
+        <div style="font-size:11px;color:#64748b;font-weight:600">Total Pieces</div>
+      </div>
+      <div style="background:#fef3c7;border-radius:10px;padding:12px;text-align:center">
+        <div style="font-size:24px;font-weight:800;color:#d97706" id="dsdlm-total-labels">0</div>
+        <div style="font-size:11px;color:#92400e;font-weight:600">Labels</div>
+      </div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="background:#f1f5f9;text-align:left">
+        <th style="padding:8px 12px;font-weight:700;color:#475569">PO #</th>
+        <th style="padding:8px 12px;font-weight:700;color:#475569;text-align:center">Pieces</th>
+        <th style="padding:8px 12px;font-weight:700;color:#475569;text-align:center">Labels</th>
+        <th style="padding:8px 12px;font-weight:700;color:#475569;text-align:right">Actions</th>
+      </tr></thead>
+      <tbody id="dsdlm-table"></tbody>
+    </table>
+  </div>
+
+  <!-- Hidden print frame for DSD labels -->
+  <div id="dsdlm-print-frame"></div>
 </section>
 
 <!-- ==================== LABEL MAKER ==================== -->
@@ -1123,7 +1174,7 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
       db.subscribeScanLog('oreilly-scanner',  () => oscLoadFromDB());
       db.subscribePickList('orderPicker',     () => opPicker.loadFromDB());
       db.subscribePickList('oreillyPicker',   () => orpkPicker.loadFromDB());
-      db.subscribePickList('dsdTracker',      () => dsdPicker.loadFromDB());
+      db.subscribePickList('dsdTracker',      () => { dsdPicker.loadFromDB(); setTimeout(dsdLmRefresh, 300); });
       db.subscribePTSession(                  () => ptLoadFromDB());
       db.subscribeLabelMaker(                 () => lmLoadFromDB());
     }
@@ -1262,6 +1313,7 @@ function activateModule(mod) {
     else if (mod === 'oreilly-picker')   orpkPicker.loadFromDB();
     else if (mod === 'dsd-tracker')      dsdPicker.loadFromDB();
     else if (mod === 'progress-tracker') ptLoadFromDB();
+    else if (mod === 'dsd-label-maker')  { dsdPicker.loadFromDB(); setTimeout(dsdLmRefresh, 300); }
     else if (mod === 'label-maker')      lmLoadFromDB();
   }
 }
@@ -1779,6 +1831,7 @@ document.getElementById('osc-part').addEventListener('keypress', e => { if (e.ke
    ================================================================ */
 function createPicker(prefix, voiceMode, storageKey) {
   const state = { parts: [], pickedParts: [], history: [], _localFileLoaded: false };
+  let _onUpdateCb = null;
 
   const el = (id) => document.getElementById(`${prefix}-${id}`);
   const lsKey = `hub_${storageKey}`;
@@ -1868,6 +1921,7 @@ function createPicker(prefix, voiceMode, storageKey) {
     el('delete-btn').style.display = state.parts.length ? 'inline-flex' : 'none';
     el('undo-btn').style.display = state.history.length ? 'inline-flex' : 'none';
     if (!skipSave) save();
+    if (_onUpdateCb) _onUpdateCb();
   }
 
   function handleFile(file) {
@@ -2001,7 +2055,7 @@ function createPicker(prefix, voiceMode, storageKey) {
 
   load();
 
-  return { check, deleteData, undo, loadFromDB, dlRemaining: () => dlCSV(state.parts, `remaining_parts_${todayStr()}.csv`), dlPicked: () => dlCSV(state.pickedParts, `picked_parts_${todayStr()}.csv`) };
+  return { check, deleteData, undo, loadFromDB, getParts: () => [...state.parts], getPicked: () => [...state.pickedParts], onUpdate: (cb) => { _onUpdateCb = cb; }, dlRemaining: () => dlCSV(state.parts, `remaining_parts_${todayStr()}.csv`), dlPicked: () => dlCSV(state.pickedParts, `picked_parts_${todayStr()}.csv`) };
 }
 
 // Create the three picker instances
@@ -2020,11 +2074,165 @@ function orpkDownloadRemaining() { orpkPicker.dlRemaining(); }
 function orpkDownloadPicked() { orpkPicker.dlPicked(); }
 
 const dsdPicker = createPicker('dsd', 'pairs', 'dsdTracker');
+dsdPicker.onUpdate(dsdLmRefresh);
 function dsdCheck() { dsdPicker.check(); }
 function dsdDelete() { dsdPicker.deleteData(); }
 function dsdUndo() { dsdPicker.undo(); }
 function dsdDownloadRemaining() { dsdPicker.dlRemaining(); }
 function dsdDownloadPicked() { dsdPicker.dlPicked(); }
+
+/* ================================================================
+   MODULE: DSD LABEL MAKER
+   ================================================================ */
+function dsdLmCalcLabels(pieces) {
+  return Math.max(2, Math.ceil(pieces / 20) * 2);
+}
+
+function dsdLmGetPOData() {
+  // Pull live data from the DSD Tracker's state
+  const allParts = [...(dsdPicker.getParts ? dsdPicker.getParts() : [])];
+  // Group by orderNumber (PO)
+  const poMap = {};
+  allParts.forEach(p => {
+    if (!poMap[p.orderNumber]) poMap[p.orderNumber] = 0;
+    poMap[p.orderNumber] += p.quantity;
+  });
+  return Object.entries(poMap).map(([po, pcs]) => ({
+    po, pcs, labels: dsdLmCalcLabels(pcs)
+  })).sort((a, b) => a.po.localeCompare(b.po));
+}
+
+function dsdLmRefresh() {
+  const data = dsdLmGetPOData();
+  const emptyState = document.getElementById('dsdlm-empty-state');
+  const summaryCard = document.getElementById('dsdlm-summary-card');
+  const printBtn = document.getElementById('dsdlm-print-all-btn');
+
+  if (!data.length) {
+    emptyState.style.display = 'block';
+    summaryCard.style.display = 'none';
+    printBtn.disabled = true;
+    return;
+  }
+
+  emptyState.style.display = 'none';
+  summaryCard.style.display = 'block';
+  printBtn.disabled = false;
+
+  const totalPOs = data.length;
+  const totalPcs = data.reduce((s, d) => s + d.pcs, 0);
+  const totalLabels = data.reduce((s, d) => s + d.labels, 0);
+
+  document.getElementById('dsdlm-total-pos').textContent = totalPOs;
+  document.getElementById('dsdlm-total-pcs').textContent = totalPcs.toLocaleString();
+  document.getElementById('dsdlm-total-labels').textContent = totalLabels;
+
+  const tbody = document.getElementById('dsdlm-table');
+  tbody.innerHTML = data.map((d, i) => `<tr style="border-bottom:1px solid #f1f5f9">
+    <td style="padding:8px 12px;font-weight:600">${d.po}</td>
+    <td style="padding:8px 12px;text-align:center">${d.pcs}</td>
+    <td style="padding:8px 12px;text-align:center"><span style="background:#fef3c7;color:#92400e;font-weight:700;padding:2px 10px;border-radius:20px;font-size:12px">${d.labels}</span></td>
+    <td style="padding:8px 12px;text-align:right">
+      <button class="btn btn-primary" style="padding:4px 12px;font-size:12px" onclick="dsdLmPrintPO(${i})"><i class="fas fa-print"></i></button>
+      <button class="btn btn-secondary" style="padding:4px 12px;font-size:12px" onclick="dsdLmDownloadZPL(${i})"><i class="fas fa-download"></i></button>
+    </td>
+  </tr>`).join('');
+}
+
+function dsdLmBuildZPL(po) {
+  return `^XA
+^PW812
+^LL1218
+^CF0,80
+^FO50,200^FDC&C WAREHOUSE^FS
+^FO50,320^GB712,4,4^FS
+^CF0,120
+^FO50,400^FDPO#^FS
+^A0N,180,180
+^FO50,540^FD${po}^FS
+^FO50,750^BY4^BCN,120,Y,N,N^FD${po}^FS
+^FO50,940^GB712,4,4^FS
+^CF0,40
+^FO50,970^FDDate: ${new Date().toLocaleDateString()}^FS
+^XZ`;
+}
+
+function dsdLmBuildLabelHTML(po) {
+  return `<div style="width:4in;height:6in;padding:0.3in;box-sizing:border-box;font-family:Arial,sans-serif;display:flex;flex-direction:column;justify-content:center;page-break-after:always">
+    <div style="font-size:24px;font-weight:700;text-align:center;margin-bottom:20px">C&C WAREHOUSE</div>
+    <hr style="border:2px solid #000;margin:10px 0">
+    <div style="font-size:18px;font-weight:600;text-align:center;margin:10px 0">PO#</div>
+    <div style="font-size:48px;font-weight:900;text-align:center;margin:10px 0;letter-spacing:2px">${po}</div>
+    <div style="text-align:center;margin:20px 0;font-family:monospace;font-size:20px;letter-spacing:4px">||||| ${po} |||||</div>
+    <hr style="border:2px solid #000;margin:10px 0">
+    <div style="font-size:14px;text-align:center;color:#666;margin-top:10px">Date: ${new Date().toLocaleDateString()}</div>
+  </div>`;
+}
+
+function dsdLmPrintPO(index) {
+  const data = dsdLmGetPOData();
+  const d = data[index];
+  if (!d) return;
+  const zplAll = Array(d.labels).fill(dsdLmBuildZPL(d.po)).join('\n');
+  const htmlAll = Array(d.labels).fill(dsdLmBuildLabelHTML(d.po)).join('');
+  dsdLmSendToPrinter(zplAll, htmlAll);
+}
+
+function dsdLmPrintAll() {
+  const data = dsdLmGetPOData();
+  if (!data.length) return;
+  let zplAll = '';
+  let htmlAll = '';
+  data.forEach(d => {
+    for (let i = 0; i < d.labels; i++) {
+      zplAll += dsdLmBuildZPL(d.po) + '\n';
+      htmlAll += dsdLmBuildLabelHTML(d.po);
+    }
+  });
+  dsdLmSendToPrinter(zplAll, htmlAll);
+}
+
+function dsdLmSendToPrinter(zpl, htmlFallback) {
+  if (window.BrowserPrint) {
+    BrowserPrint.getLocalDevices(function(devices) {
+      const list = (devices && devices.printer) ? devices.printer : [];
+      const target = list[0];
+      if (target) {
+        target.send(zpl, () => {}, (err) => {
+          dsdLmDoBrowserPrint(htmlFallback);
+        });
+      } else {
+        dsdLmDoBrowserPrint(htmlFallback);
+      }
+    }, () => dsdLmDoBrowserPrint(htmlFallback));
+  } else {
+    dsdLmDoBrowserPrint(htmlFallback);
+  }
+}
+
+function dsdLmDoBrowserPrint(htmlContent) {
+  const frame = document.getElementById('dsdlm-print-frame');
+  frame.innerHTML = htmlContent;
+  setTimeout(() => { window.print(); }, 200);
+}
+
+function dsdLmDownloadZPL(index) {
+  const data = dsdLmGetPOData();
+  const d = data[index];
+  if (!d) return;
+  const zpl = Array(d.labels).fill(dsdLmBuildZPL(d.po)).join('\n');
+  downloadBlob(zpl, `dsd_labels_${d.po}.zpl`, 'text/plain');
+}
+
+function dsdLmDownloadAllZPL() {
+  const data = dsdLmGetPOData();
+  if (!data.length) return;
+  let zpl = '';
+  data.forEach(d => {
+    for (let i = 0; i < d.labels; i++) zpl += dsdLmBuildZPL(d.po) + '\n';
+  });
+  downloadBlob(zpl, `dsd_labels_all_${new Date().toISOString().slice(0,10)}.zpl`, 'text/plain');
+}
 
 /* ================================================================
    MODULE: A&I CONVERTER
