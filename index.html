@@ -1645,6 +1645,12 @@ async function invLoadFromDB() {
   const rows = await db.loadScans('invoice');
   inv.boxes = db.scanRowsToBoxes(rows);
   invRefresh();
+  // Auto-focus: if location already filled, jump straight to part; otherwise focus location
+  setTimeout(() => {
+    const locEl = document.getElementById('inv-location');
+    if (locEl.value.trim()) document.getElementById('inv-part').focus();
+    else locEl.focus();
+  }, 100);
 }
 
 function invRefresh() {
@@ -1668,10 +1674,11 @@ function invEmailAlex() {
   emailAlex(csv, `invoice_scan_${todayStr()}.csv`, `Invoice Scan Export — ${todayStr()}`);
 }
 
-// Enter key focus shifting
+// Enter key focus shifting: location → part → invoice → qty → (add & back to part)
+document.getElementById('inv-location').addEventListener('keypress', e => { if (e.key==='Enter' && e.target.value.trim()) { e.preventDefault(); document.getElementById('inv-part').focus(); } });
 document.getElementById('inv-part').addEventListener('keypress', e => { if (e.key==='Enter' && e.target.value.trim()) { e.preventDefault(); document.getElementById('inv-invoice').focus(); } });
 document.getElementById('inv-invoice').addEventListener('keypress', e => { if (e.key==='Enter' && e.target.value.trim()) { e.preventDefault(); document.getElementById('inv-qty').focus(); } });
-document.getElementById('inv-qty').addEventListener('keypress', e => { if (e.key==='Enter') { e.preventDefault(); invAddBox(); } });
+document.getElementById('inv-qty').addEventListener('keypress', e => { if (e.key==='Enter' && e.target.value.trim()) { e.preventDefault(); invAddBox(); } });
 
 /* ================================================================
    MODULE: O'REILLY SCANNER
