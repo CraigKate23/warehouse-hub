@@ -33,9 +33,13 @@
 }
 @media print {
   body * { visibility: hidden !important; }
-  #lm-print-frame, #lm-print-frame *, #dsdlm-print-frame, #dsdlm-print-frame * { visibility: visible !important; }
-  #lm-print-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: 4in !important; height: 6in !important; margin: 0 !important; padding: 0 !important; }
-  #dsdlm-print-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: 6in !important; height: 4in !important; margin: 0 !important; padding: 0 !important; }
+  /* Only the frame matching the current print job is visible. body.printing-lm
+     shows the Label Maker frame; body.printing-dsdlm shows the DSD frame.
+     This prevents stale content from the other frame leaking onto the page. */
+  body.printing-lm #lm-print-frame, body.printing-lm #lm-print-frame * { visibility: visible !important; }
+  body.printing-lm #lm-print-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: 4in !important; height: 6in !important; margin: 0 !important; padding: 0 !important; }
+  body.printing-dsdlm #dsdlm-print-frame, body.printing-dsdlm #dsdlm-print-frame * { visibility: visible !important; }
+  body.printing-dsdlm #dsdlm-print-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: 6in !important; height: 4in !important; margin: 0 !important; padding: 0 !important; }
   @page { size: 4in 6in; margin: 0; }
 }
 
@@ -2002,7 +2006,13 @@ function createPicker(prefix, voiceMode, storageKey) {
     const input = el('input');
     const pn = input.value.trim().toUpperCase();
     if (!pn) { setStatus('Enter a part number.', '#e2e8f0'); return; }
-    if (!state.parts.length) { setStatus('No parts loaded.', '#ff6b6b', 'X'); speak('No parts', voiceMode); input.value = ''; return; }
+    if (!state.parts.length) {
+      setStatus('No parts loaded.', '#ff6b6b', 'X');
+      speak('No parts', voiceMode);
+      if (typeof ptPlaySound === 'function') ptPlaySound('notneeded');
+      input.value = '';
+      return;
+    }
     const matches = state.parts.filter(p => p.partNumber === pn);
     if (matches.length > 0) {
       state.history.push(state.parts.map(p => ({...p})));
@@ -2015,12 +2025,14 @@ function createPicker(prefix, voiceMode, storageKey) {
         setStatus(matches.length > 1 ? `Found (${matches.length} matches, processed ${m.orderNumber}).` : 'Found and processed.', '#38a169', m.orderNumber);
         updateUI();
         speak(m.orderNumber, voiceMode);
+        if (typeof ptPlaySound === 'function') ptPlaySound('success');
         dashStats.picks++;
         logActivity('hand-pointer', `Picked: ${pn} → Order ${m.orderNumber}`, '#f59e0b');
       }
     } else {
       setStatus('Part not found.', '#ff6b6b', 'X');
       speak('No', voiceMode);
+      if (typeof ptPlaySound === 'function') ptPlaySound('notneeded');
     }
     input.value = '';
     el('check-btn').disabled = true;
@@ -2212,6 +2224,8 @@ function dsdLmSendToPrinter(zpl, htmlFallback) {
 function dsdLmDoBrowserPrint(htmlContent) {
   const frame = document.getElementById('dsdlm-print-frame');
   frame.innerHTML = htmlContent;
+  document.body.classList.add('printing-dsdlm');
+  document.body.classList.remove('printing-lm');
 
   // Find the existing @page rule inside @media print and swap it to landscape 6x4.
   // Dynamically-appended <style> rules don't reliably beat rules baked into the
@@ -2242,6 +2256,7 @@ function dsdLmDoBrowserPrint(htmlContent) {
   setTimeout(() => {
     window.print();
     setTimeout(() => {
+      document.body.classList.remove('printing-dsdlm');
       if (targetMediaRule && originalPageText && pageIdx >= 0) {
         targetMediaRule.deleteRule(pageIdx);
         targetMediaRule.insertRule(originalPageText, pageIdx);
@@ -3245,8 +3260,11 @@ function lmDoBrowserPrint(htmlContent, onDone) {
   const frame = document.getElementById('lm-print-frame');
   frame.innerHTML = htmlContent;
   lmRenderBarcodes(frame);
+  document.body.classList.add('printing-lm');
+  document.body.classList.remove('printing-dsdlm');
   setTimeout(() => {
     window.print();
+    setTimeout(() => { document.body.classList.remove('printing-lm'); }, 500);
     if (onDone) onDone();
   }, 200);
 }
