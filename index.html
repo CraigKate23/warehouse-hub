@@ -28,12 +28,14 @@
 /* ============ PRINT STYLES (Zebra 4x6) ============ */
 @media screen {
   /* Keep print frames rendered but invisible so JsBarcode can draw on them */
-  #lm-print-frame, #dsdlm-print-frame { position: fixed !important; left: -10000px !important; top: 0 !important; width: 4in !important; height: 6in !important; }
+  #lm-print-frame { position: fixed !important; left: -10000px !important; top: 0 !important; width: 4in !important; height: 6in !important; }
+  #dsdlm-print-frame { position: fixed !important; left: -10000px !important; top: 0 !important; width: 6in !important; height: 4in !important; }
 }
 @media print {
   body * { visibility: hidden !important; }
   #lm-print-frame, #lm-print-frame *, #dsdlm-print-frame, #dsdlm-print-frame * { visibility: visible !important; }
-  #lm-print-frame, #dsdlm-print-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: 4in !important; height: 6in !important; margin: 0 !important; padding: 0 !important; }
+  #lm-print-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: 4in !important; height: 6in !important; margin: 0 !important; padding: 0 !important; }
+  #dsdlm-print-frame { position: fixed !important; left: 0 !important; top: 0 !important; width: 6in !important; height: 4in !important; margin: 0 !important; padding: 0 !important; }
   @page { size: 4in 6in; margin: 0; }
 }
 
@@ -2140,32 +2142,25 @@ function dsdLmRefresh() {
 }
 
 function dsdLmBuildZPL(po) {
+  // Landscape label: 6" wide x 4" tall (1218 x 812 dots @ 203 dpi)
   return `^XA
-^PW812
-^LL1218
-^CF0,80
-^FO50,200^FDC&C WAREHOUSE^FS
-^FO50,320^GB712,4,4^FS
-^CF0,120
-^FO50,400^FDPO#^FS
-^A0N,180,180
-^FO50,540^FD${po}^FS
-^FO50,750^BY4^BCN,120,Y,N,N^FD${po}^FS
-^FO50,940^GB712,4,4^FS
-^CF0,40
-^FO50,970^FDDate: ${new Date().toLocaleDateString()}^FS
+^PW1218
+^LL812
+^CF0,100
+^FO60,80^FDPO#^FS
+^FO60,200^GB1100,6,6^FS
+^A0N,360,360
+^FO60,240^FB1100,1,0,C,0^FD${po}^FS
+^FO60,640^BY5^BCN,140,Y,N,N^FD${po}^FS
 ^XZ`;
 }
 
 function dsdLmBuildLabelHTML(po) {
-  return `<div style="width:4in;height:6in;padding:0.3in;box-sizing:border-box;font-family:Arial,sans-serif;display:flex;flex-direction:column;justify-content:center;page-break-after:always">
-    <div style="font-size:24px;font-weight:700;text-align:center;margin-bottom:20px">C&C WAREHOUSE</div>
-    <hr style="border:2px solid #000;margin:10px 0">
-    <div style="font-size:18px;font-weight:600;text-align:center;margin:10px 0">PO#</div>
-    <div style="font-size:48px;font-weight:900;text-align:center;margin:10px 0;letter-spacing:2px">${po}</div>
-    <div style="text-align:center;margin:20px 0;font-family:monospace;font-size:20px;letter-spacing:4px">||||| ${po} |||||</div>
-    <hr style="border:2px solid #000;margin:10px 0">
-    <div style="font-size:14px;text-align:center;color:#666;margin-top:10px">Date: ${new Date().toLocaleDateString()}</div>
+  return `<div style="width:6in;height:4in;padding:0.2in;box-sizing:border-box;font-family:Arial,sans-serif;display:flex;flex-direction:column;justify-content:center;page-break-after:always">
+    <div style="font-size:32px;font-weight:700;text-align:left;margin:0 0 4px 8px">PO#</div>
+    <hr style="border:2px solid #000;margin:4px 0 8px 0">
+    <div style="font-size:140px;font-weight:900;text-align:center;line-height:1;margin:8px 0;letter-spacing:4px">${po}</div>
+    <div style="text-align:center;margin-top:12px;font-family:monospace;font-size:24px;letter-spacing:6px">||||| ${po} |||||</div>
   </div>`;
 }
 
@@ -2213,7 +2208,15 @@ function dsdLmSendToPrinter(zpl, htmlFallback) {
 function dsdLmDoBrowserPrint(htmlContent) {
   const frame = document.getElementById('dsdlm-print-frame');
   frame.innerHTML = htmlContent;
-  setTimeout(() => { window.print(); }, 200);
+  // Temporarily override @page to landscape 6x4 for this print job
+  const styleEl = document.createElement('style');
+  styleEl.id = 'dsdlm-print-page-style';
+  styleEl.textContent = '@media print { @page { size: 6in 4in !important; margin: 0 !important; } }';
+  document.head.appendChild(styleEl);
+  setTimeout(() => {
+    window.print();
+    setTimeout(() => { styleEl.remove(); }, 500);
+  }, 200);
 }
 
 function dsdLmDownloadZPL(index) {
