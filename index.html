@@ -2142,16 +2142,19 @@ function dsdLmRefresh() {
 }
 
 function dsdLmBuildZPL(po) {
-  // Landscape label: 6" wide x 4" tall (1218 x 812 dots @ 203 dpi)
+  // 4x6 portrait media (812 x 1218 dots @ 203 dpi), but print LANDSCAPE
+  // by rotating every field 90° CW with ^FWR. Read the label by turning
+  // it 90° CCW (6" wide x 4" tall viewing orientation).
   return `^XA
-^PW1218
-^LL812
-^CF0,100
-^FO60,80^FDPO#^FS
-^FO60,200^GB1100,6,6^FS
-^A0N,360,360
-^FO60,240^FB1100,1,0,C,0^FD${po}^FS
-^FO60,640^BY5^BCN,140,Y,N,N^FD${po}^FS
+^PW812
+^LL1218
+^FWR
+^CF0,80
+^FO720,60^FDPO#^FS
+^FO700,60^GB4,1100,4^FS
+^A0R,360,360
+^FO620,60^FB1100,1,0,C,0^FD${po}^FS
+^FO180,300^BY5^BCR,160,Y,N,N^FD${po}^FS
 ^XZ`;
 }
 
@@ -2208,14 +2211,41 @@ function dsdLmSendToPrinter(zpl, htmlFallback) {
 function dsdLmDoBrowserPrint(htmlContent) {
   const frame = document.getElementById('dsdlm-print-frame');
   frame.innerHTML = htmlContent;
-  // Temporarily override @page to landscape 6x4 for this print job
-  const styleEl = document.createElement('style');
-  styleEl.id = 'dsdlm-print-page-style';
-  styleEl.textContent = '@media print { @page { size: 6in 4in !important; margin: 0 !important; } }';
-  document.head.appendChild(styleEl);
+
+  // Find the existing @page rule inside @media print and swap it to landscape 6x4.
+  // Dynamically-appended <style> rules don't reliably beat rules baked into the
+  // document stylesheet, so we mutate the original rule directly and restore after.
+  let targetMediaRule = null;
+  let originalPageText = null;
+  let pageIdx = -1;
+  outer: for (const sheet of document.styleSheets) {
+    let rules;
+    try { rules = sheet.cssRules; } catch (e) { continue; }
+    if (!rules) continue;
+    for (const rule of rules) {
+      if (rule.type === CSSRule.MEDIA_RULE && /print/i.test(rule.conditionText || rule.media.mediaText)) {
+        for (let j = 0; j < rule.cssRules.length; j++) {
+          if (rule.cssRules[j].type === CSSRule.PAGE_RULE) {
+            targetMediaRule = rule;
+            originalPageText = rule.cssRules[j].cssText;
+            pageIdx = j;
+            rule.deleteRule(j);
+            rule.insertRule('@page { size: 6in 4in; margin: 0; }', j);
+            break outer;
+          }
+        }
+      }
+    }
+  }
+
   setTimeout(() => {
     window.print();
-    setTimeout(() => { styleEl.remove(); }, 500);
+    setTimeout(() => {
+      if (targetMediaRule && originalPageText && pageIdx >= 0) {
+        targetMediaRule.deleteRule(pageIdx);
+        targetMediaRule.insertRule(originalPageText, pageIdx);
+      }
+    }, 800);
   }, 200);
 }
 
