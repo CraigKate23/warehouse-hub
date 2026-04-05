@@ -1615,10 +1615,11 @@ function invAddBox() {
   const invoice = document.getElementById('inv-invoice').value.trim();
   const qtyRaw = document.getElementById('inv-qty').value.trim();
   const qty = parseInt(qtyRaw.replace(/[^0-9]/g,'')) || 1;
-  if (!loc || !part || !invoice || qty < 1) { showMsg('inv-status','All fields required.','error'); return; }
+  if (!loc || !part || !invoice || qty < 1) { showMsg('inv-status','All fields required.','error'); ptPlaySound('notneeded'); return; }
   hideMsg('inv-status');
   inv.boxes.push({ productCode: part, invoiceNumber: invoice, qty, warehouseLocation: loc });
   invRefresh();
+  ptPlaySound('success');
   dashStats.scans++;
   logActivity('file-invoice', `Invoice ${invoice}: ${part} (×${qty})`, '#6366f1');
   document.getElementById('inv-part').value = '';
