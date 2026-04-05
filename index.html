@@ -2006,13 +2006,7 @@ function createPicker(prefix, voiceMode, storageKey) {
     const input = el('input');
     const pn = input.value.trim().toUpperCase();
     if (!pn) { setStatus('Enter a part number.', '#e2e8f0'); return; }
-    if (!state.parts.length) {
-      setStatus('No parts loaded.', '#ff6b6b', 'X');
-      speak('No parts', voiceMode);
-      if (typeof ptPlaySound === 'function') ptPlaySound('notneeded');
-      input.value = '';
-      return;
-    }
+    if (!state.parts.length) { setStatus('No parts loaded.', '#ff6b6b', 'X'); speak('No parts', voiceMode); input.value = ''; return; }
     const matches = state.parts.filter(p => p.partNumber === pn);
     if (matches.length > 0) {
       state.history.push(state.parts.map(p => ({...p})));
@@ -2025,14 +2019,12 @@ function createPicker(prefix, voiceMode, storageKey) {
         setStatus(matches.length > 1 ? `Found (${matches.length} matches, processed ${m.orderNumber}).` : 'Found and processed.', '#38a169', m.orderNumber);
         updateUI();
         speak(m.orderNumber, voiceMode);
-        if (typeof ptPlaySound === 'function') ptPlaySound('success');
         dashStats.picks++;
         logActivity('hand-pointer', `Picked: ${pn} → Order ${m.orderNumber}`, '#f59e0b');
       }
     } else {
       setStatus('Part not found.', '#ff6b6b', 'X');
       speak('No', voiceMode);
-      if (typeof ptPlaySound === 'function') ptPlaySound('notneeded');
     }
     input.value = '';
     el('check-btn').disabled = true;
@@ -2853,6 +2845,7 @@ function lmScan() {
   if (matches.length === 0) {
     showMsg('lm-scan-status', `No matching item found for: ${code}`, 'error');
     document.getElementById('lm-last-scan').style.display = 'none';
+    if (typeof ptPlaySound === 'function') ptPlaySound('notneeded');
   } else {
     // Count how many times this code is already queued or printed for this customer
     const alreadyScanned = [...lm.queue, ...lm.printed].filter(r =>
@@ -2860,6 +2853,7 @@ function lmScan() {
     ).length;
     if (alreadyScanned >= matches.length) {
       showMsg('lm-scan-status', `Already scanned all ${matches.length} label(s) for ${field.toUpperCase()} ${code} — no more needed.`, 'error');
+      if (typeof ptPlaySound === 'function') ptPlaySound('notneeded');
       input.value = '';
       input.focus();
       return;
@@ -2868,6 +2862,7 @@ function lmScan() {
     lm.queue.push({ ...item, _customer: customer });
     const remaining = matches.length - alreadyScanned - 1;
     showMsg('lm-scan-status', `Added to queue: ${field.toUpperCase()} ${code} (${remaining} more needed) - Keep scanning!`, 'success');
+    if (typeof ptPlaySound === 'function') ptPlaySound('success');
     document.getElementById('lm-last-scan').style.display = 'block';
     document.getElementById('lm-last-detail').textContent = `${field.toUpperCase()}: ${item[field]} | Order: ${item.orderNo} | Mat: ${item.mat} | Qty: ${item.qty}`;
     lmRefreshQueue();
