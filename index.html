@@ -2142,19 +2142,20 @@ function dsdLmRefresh() {
 }
 
 function dsdLmBuildZPL(po) {
-  // 4x6 portrait media (812 x 1218 dots @ 203 dpi), but print LANDSCAPE
+  // 4x6 portrait media (812 x 1218 dots @ 203 dpi), printed LANDSCAPE
   // by rotating every field 90° CW with ^FWR. Read the label by turning
   // it 90° CCW (6" wide x 4" tall viewing orientation).
+  // Center the barcode horizontally in the 1218-dot landscape width.
   return `^XA
 ^PW812
 ^LL1218
 ^FWR
-^CF0,80
-^FO720,60^FDPO#^FS
-^FO700,60^GB4,1100,4^FS
-^A0R,360,360
-^FO620,60^FB1100,1,0,C,0^FD${po}^FS
-^FO180,300^BY5^BCR,160,Y,N,N^FD${po}^FS
+^CF0,60
+^FO770,40^FDPO#^FS
+^FO750,40^GB4,1138,4^FS
+^A0R,260,260
+^FO520,80^FB1138,1,0,C,0^FD${po}^FS
+^FO220,380^BY4^BCR,180,Y,N,N^FD${po}^FS
 ^XZ`;
 }
 
