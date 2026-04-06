@@ -2878,20 +2878,21 @@ function lmScan() {
       input.focus();
       return;
     }
-    const item = matches[alreadyScanned];  // Pick the next unscanned CSV row
-    lm.queue.push({ ...item, _customer: customer });
+    const csvRow = matches[alreadyScanned];  // Pick the next unscanned CSV row
+    const queueItem = { ...csvRow, _customer: customer };
+    lm.queue.push(queueItem);
     const remaining = matches.length - alreadyScanned - 1;
     showMsg('lm-scan-status', `Added to queue: ${field.toUpperCase()} ${code} (${remaining} more needed) - Keep scanning!`, 'success');
     if (typeof ptPlaySound === 'function') ptPlaySound('success');
     document.getElementById('lm-last-scan').style.display = 'block';
-    document.getElementById('lm-last-detail').textContent = `${field.toUpperCase()}: ${item[field]} | Order: ${item.orderNo} | Mat: ${item.mat} | Qty: ${item.qty}`;
+    document.getElementById('lm-last-detail').textContent = `${field.toUpperCase()}: ${csvRow[field]} | Order: ${csvRow.orderNo} | Mat: ${csvRow.mat} | Qty: ${csvRow.qty}`;
     lmRefreshQueue();
-    lmUpdatePreview(item);
-    logActivity('print', `Label queued: ${item.orderNo} (${item.mat})`, '#10b981');
+    lmUpdatePreview(csvRow);
+    logActivity('print', `Label queued: ${csvRow.orderNo} (${csvRow.mat})`, '#10b981');
     dashUpdateStats();
     db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
     if (document.getElementById('lm-autoprint').checked) {
-      lmPrintOne(lm.queue.length - 1);
+      lmPrintOne(queueItem);  // Pass queue item ref directly — immune to index shifts
     }
   }
   input.value = '';
@@ -3331,15 +3332,21 @@ function lmSendToZebraPrinter(zpl, htmlFallback, onDone) {
   }
 }
 
-function lmPrintOne(index) {
-  const item = lm.queue[index];
+function lmPrintOne(indexOrItem) {
+  // Accept either a queue index (legacy/button clicks) or direct item reference (auto-print)
+  const item = typeof indexOrItem === 'number' ? lm.queue[indexOrItem] : indexOrItem;
   if (!item) return;
-  lmSendToZebraPrinter(lmBuildZPL(item), lmBuildLabelHTML(item), () => {
+  // Snapshot the ZPL & HTML before async send (queue may shift before callback)
+  const zpl = lmBuildZPL(item);
+  const html = lmBuildLabelHTML(item);
+  lmSendToZebraPrinter(zpl, html, () => {
+    // Guard: only move if still in queue (prevents double-splice)
+    const idx = lm.queue.indexOf(item);
+    if (idx === -1) return;  // already moved by a prior callback
     dashStats.labels++;
     logActivity('check-circle', `Printed: ${item.orderNo} / ${item.mat}`, '#10b981');
-    // Move from queue to printed
     lm.printed.push(item);
-    lm.queue.splice(lm.queue.indexOf(item), 1);
+    lm.queue.splice(idx, 1);
     lmRefreshQueue();
     db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
     dashUpdateStats();
