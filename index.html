@@ -2203,13 +2203,25 @@ function dsdLmPrintAll() {
   dsdLmSendToPrinter(zplAll, htmlAll);
 }
 
+// DSD shares the cached Zebra device with LM for instant sends.
 function dsdLmSendToPrinter(zpl, htmlFallback) {
+  // Fast path: cached device
+  if (lmCachedZebraDevice) {
+    lmCachedZebraDevice.send(zpl, () => {}, (err) => {
+      lmCachedZebraDevice = null;
+      dsdLmSendToPrinter(zpl, htmlFallback);  // retry via discovery
+    });
+    return;
+  }
+  // Slow path: discover once, cache, send
   if (window.BrowserPrint) {
     BrowserPrint.getLocalDevices(function(devices) {
       const list = (devices && devices.printer) ? devices.printer : [];
       const target = list[0];
       if (target) {
+        lmCachedZebraDevice = target;
         target.send(zpl, () => {}, (err) => {
+          lmCachedZebraDevice = null;
           dsdLmDoBrowserPrint(htmlFallback);
         });
       } else {
@@ -3192,6 +3204,7 @@ function lmUpdateBPStatus() {
 }
 
 function lmDetectZebraPrinters() {
+  lmCachedZebraDevice = null;  // Clear cache so next print re-discovers
   if (!window.BrowserPrint) {
     lmUpdateBPStatus();
     showMsg('lm-scan-status', 'Zebra BrowserPrint not detected. See the hint below the printer selector.', 'error');
@@ -3273,28 +3286,43 @@ function lmDoBrowserPrint(htmlContent, onDone) {
   }, 200);
 }
 
+// Cached BrowserPrint device — avoids a localhost round-trip on every single label.
+let lmCachedZebraDevice = null;
+
 function lmSendToZebraPrinter(zpl, htmlFallback, onDone) {
-  // Always try Zebra BrowserPrint first (silent, no dialog).
-  // Fall back to browser print only if BrowserPrint isn't installed or no device found.
+  // Fast path: if we already have a cached device, fire ZPL immediately.
+  if (lmCachedZebraDevice) {
+    lmCachedZebraDevice.send(zpl,
+      () => { if (onDone) onDone(); },
+      (err) => {
+        // Device went away — clear cache and retry once via full discovery.
+        showMsg('lm-scan-status', `Printer error: ${err}. Retrying...`, 'error');
+        lmCachedZebraDevice = null;
+        lmSendToZebraPrinter(zpl, htmlFallback, onDone);
+      }
+    );
+    return;
+  }
+  // Slow path: discover devices (only on first print or after error).
   if (window.BrowserPrint) {
     BrowserPrint.getLocalDevices(function(devices) {
       const list = (devices && devices.printer) ? devices.printer : [];
       const printerIdx = parseInt(document.getElementById('lm-printer-select').value) || 0;
       const selectedPrinter = lm.printers[printerIdx];
-      // Prefer the selected named printer; otherwise use the first Zebra device found
       const target = (selectedPrinter && printerIdx > 0)
         ? (list.find(d => d.name === selectedPrinter.name) || list[0])
         : list[0];
       if (target) {
+        lmCachedZebraDevice = target;  // Cache for all subsequent prints
         target.send(zpl,
           () => { if (onDone) onDone(); },
           (err) => {
             showMsg('lm-scan-status', `Printer error: ${err}. Falling back to browser print.`, 'error');
+            lmCachedZebraDevice = null;
             lmDoBrowserPrint(htmlFallback, onDone);
           }
         );
       } else {
-        // No Zebra device found — fall back
         lmDoBrowserPrint(htmlFallback, onDone);
       }
     }, () => lmDoBrowserPrint(htmlFallback, onDone));
