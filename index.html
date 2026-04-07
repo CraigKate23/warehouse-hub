@@ -925,7 +925,10 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
         <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:3px">Order Detail</div>
         <div style="font-size:22px;font-weight:900;letter-spacing:-.5px" id="pt-detail-order">—</div>
       </div>
-      <button class="btn btn-ghost" onclick="ptCloseDetail()"><i class="fas fa-arrow-left"></i> All Orders</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="ptResetPulls()" title="Reset all pulled counts for this order"><i class="fas fa-undo"></i> Reset Pulls</button>
+        <button class="btn btn-ghost" onclick="ptCloseDetail()"><i class="fas fa-arrow-left"></i> All Orders</button>
+      </div>
     </div>
 
     <!-- Stats row -->
@@ -4203,19 +4206,12 @@ async function ptLoadFromDB() {
 }
 
 async function ptClearPallets() {
-  const ok = await showConfirm('Clear All Pallets', 'This will remove all pallets for this order and undo their pulled counts.', 'Clear All', 'btn-danger');
+  const ok = await showConfirm('Clear All Pallets', 'This will remove all pallets and reset all pulled counts for this order.', 'Clear All', 'btn-danger');
   if (!ok) return;
   const order = pt.orders[pt.selectedOrder];
-  if (order && order.pallets) {
-    // Undo pulled counts for every item on every pallet
-    order.pallets.forEach(pallet => {
-      pallet.items.forEach(item => {
-        const orderItem = order.items.find(it => it.partNumber.toUpperCase() === item.partNumber.toUpperCase());
-        if (orderItem) {
-          order.pulled[orderItem.partNumber] = Math.max(0, (order.pulled[orderItem.partNumber] || 0) - item.qty);
-        }
-      });
-    });
+  if (order) {
+    // Reset ALL pulled counts to zero — pallets are the source of truth
+    Object.keys(order.pulled).forEach(k => { order.pulled[k] = 0; });
     order.pallets = [];
   }
   ptUpdatePalletSelects();
@@ -4349,6 +4345,26 @@ async function ptClearActivePallet() {
   ptRefreshLivePallet();
   ptRenderOrders();
   if (pt.selectedOrder) ptShowDetail(pt.selectedOrder);
+  db.savePTSession(pt.orders, []);
+}
+
+/* ---- Reset all pulled counts for the current order ---- */
+async function ptResetPulls() {
+  const order = pt.orders[pt.selectedOrder];
+  if (!order) return;
+  const pulledQty = Object.values(order.pulled).reduce((s,v) => s + v, 0);
+  if (pulledQty === 0) return;
+  const ok = await showConfirm('Reset Pulls', `Reset all ${pulledQty} pulled items back to missing for this order? Pallets will also be cleared.`, 'Reset', 'btn-danger');
+  if (!ok) return;
+  // Cancel any pending scan render
+  if (ptScan._renderTimer) { cancelAnimationFrame(ptScan._renderTimer); ptScan._renderTimer = null; }
+  Object.keys(order.pulled).forEach(k => { order.pulled[k] = 0; });
+  order.pallets = [];
+  ptUpdatePalletSelects();
+  ptShowPallet();
+  ptRefreshLivePallet();
+  ptRenderOrders();
+  ptShowDetail(pt.selectedOrder);
   db.savePTSession(pt.orders, []);
 }
 
