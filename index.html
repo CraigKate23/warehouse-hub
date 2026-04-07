@@ -4288,27 +4288,16 @@ function ptRefreshLivePallet() {
 // Refresh live pallet whenever the dropdown changes
 document.getElementById('pt-active-pallet').addEventListener('change', ptRefreshLivePallet);
 
-/* ---- Packing List Download (all pallets, separated) ---- */
+/* ---- Packing List Download (all pallets, flat 4-column format) ---- */
 function ptDownloadPackingList() {
   if (!pt.pallets.length) return;
 
-  let csv = '';
+  let csv = 'PO#,Pallet#,Part#,QTY\n';
   pt.pallets.forEach((pallet, pi) => {
-    if (pallet.items.length === 0) return;
-    csv += `Pallet ${pi + 1}\n`;
-    csv += 'Part #,Name,Order,Qty\n';
     pallet.items.forEach(item => {
-      csv += `"${item.partNumber}","${item.name || ''}","${item.orderId || ''}",${item.qty}\n`;
+      csv += `"${item.orderId || ''}",${pi + 1},"${item.partNumber}",${item.qty}\n`;
     });
-    // Pallet totals
-    const totalUnits = pallet.items.reduce((s, i) => s + i.qty, 0);
-    csv += `,,Total,${totalUnits}\n`;
-    csv += '\n';
   });
-
-  // Grand total
-  const grandTotal = pt.pallets.reduce((s, p) => s + p.items.reduce((s2, i) => s2 + i.qty, 0), 0);
-  csv += `Grand Total,,,${grandTotal}\n`;
 
   downloadBlob(csv, `packing_list_${todayStr()}.csv`);
 }
