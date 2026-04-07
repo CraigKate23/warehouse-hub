@@ -997,6 +997,7 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <div class="card-title" style="margin:0"><i class="fas fa-pallet"></i> <span id="pt-live-pallet-label">Pallet 1</span> <span id="pt-live-pallet-count" style="font-weight:500;color:#94a3b8;font-size:13px"></span></div>
       <div style="display:flex;gap:8px">
+        <button class="btn btn-danger btn-sm" onclick="ptClearActivePallet()"><i class="fas fa-trash"></i> Clear Pallet</button>
         <button class="btn btn-info btn-sm" onclick="ptDownloadPackingList()"><i class="fas fa-file-download"></i> Packing List</button>
       </div>
     </div>
@@ -4174,8 +4175,14 @@ function ptUpdatePalletSelects() {
   const palletOpts = pt.pallets.map((p,i) => `<option value="${i}">Pallet ${i+1} (${p.items.length} item${p.items.length!==1?'s':''})</option>`).join('');
   const detailSel = document.getElementById('pt-pallet-select');
   const scanSel   = document.getElementById('pt-active-pallet');
+  // Preserve selected values before rebuilding
+  const detailVal = detailSel ? detailSel.value : '0';
+  const scanVal   = scanSel   ? scanSel.value   : '0';
   if (detailSel) detailSel.innerHTML = palletOpts;
   if (scanSel)   scanSel.innerHTML   = palletOpts;
+  // Restore selections (clamp to valid range)
+  if (detailSel) detailSel.value = Math.min(detailVal, pt.pallets.length - 1);
+  if (scanSel)   scanSel.value   = Math.min(scanVal, pt.pallets.length - 1);
 }
 
 function ptShowPallet() {
@@ -4244,6 +4251,36 @@ function ptRemoveFromPallet(index) {
   ptShowPallet();
   ptRenderOrders();
   if (pt.selectedOrder) ptShowDetail(pt.selectedOrder);
+}
+
+/* ---- Clear a single pallet (undo pulled counts, empty items) ---- */
+async function ptClearActivePallet() {
+  const scanSel = document.getElementById('pt-active-pallet');
+  const palletIdx = scanSel ? parseInt(scanSel.value) : NaN;
+  if (isNaN(palletIdx) || !pt.pallets[palletIdx]) return;
+  const pallet = pt.pallets[palletIdx];
+  if (!pallet.items.length) return;
+
+  const ok = await showConfirm('Clear Pallet', `Remove all ${pallet.items.length} items from Pallet ${palletIdx + 1}? Their pulled counts will be undone.`, 'Clear', 'btn-danger');
+  if (!ok) return;
+
+  // Undo pulled counts for each item on this pallet
+  pallet.items.forEach(item => {
+    Object.values(pt.orders).forEach(order => {
+      const orderItem = order.items.find(it => it.partNumber.toUpperCase() === item.partNumber.toUpperCase());
+      if (orderItem) {
+        order.pulled[orderItem.partNumber] = Math.max(0, (order.pulled[orderItem.partNumber] || 0) - item.qty);
+      }
+    });
+  });
+
+  pallet.items = [];
+  ptUpdatePalletSelects();
+  ptShowPallet();
+  ptRefreshLivePallet();
+  ptRenderOrders();
+  if (pt.selectedOrder) ptShowDetail(pt.selectedOrder);
+  db.savePTSession(pt.orders, pt.pallets);
 }
 
 /* ---- Live Pallet Viewer ---- */
