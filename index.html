@@ -933,7 +933,25 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
     </div>
   </div>
 
-  <!-- Order detail view (replaces list, shown inline at top) -->
+  <!-- Scan bar (above order detail, fixed at top when viewing an order) -->
+  <div class="card" id="pt-scan-card" style="display:none">
+    <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px">
+        <label style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:5px">Scan Part Number</label>
+        <input type="text" id="pt-scan" placeholder="Scan or type a part number…" class="scan-field" style="width:100%">
+      </div>
+      <div style="min-width:160px">
+        <label style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:5px">Active Pallet</label>
+        <select id="pt-active-pallet" style="padding:13px 12px;border:2px solid #e2e8f0;border-radius:10px;font-size:14px;font-weight:600;font-family:inherit;outline:none;background:#fff;min-width:160px">
+        </select>
+      </div>
+      <button class="btn btn-success" onclick="ptNewPalletAndSelect()" style="align-self:flex-end;white-space:nowrap"><i class="fas fa-plus"></i> New Pallet</button>
+    </div>
+    <div id="pt-scan-feedback" style="display:none;margin-top:12px;padding:12px 16px;border-radius:10px;font-weight:600;font-size:14px;align-items:center;gap:10px"></div>
+    <div id="pt-scan-last" style="display:none;margin-top:10px;padding:10px 14px;background:#f8fafc;border-radius:9px;font-size:13px;color:#475569;border:1px solid #e2e8f0"></div>
+  </div>
+
+  <!-- Order detail view -->
   <div class="card" id="pt-detail-card" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <div>
@@ -973,24 +991,6 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
       <tbody id="pt-detail-table"></tbody>
     </table>
 
-  </div>
-
-  <!-- Scan bar (above order detail, fixed at top when viewing an order) -->
-  <div class="card" id="pt-scan-card" style="display:none">
-    <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
-      <div style="flex:1;min-width:220px">
-        <label style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:5px">Scan Part Number</label>
-        <input type="text" id="pt-scan" placeholder="Scan or type a part number…" class="scan-field" style="width:100%">
-      </div>
-      <div style="min-width:160px">
-        <label style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.6px;display:block;margin-bottom:5px">Active Pallet</label>
-        <select id="pt-active-pallet" style="padding:13px 12px;border:2px solid #e2e8f0;border-radius:10px;font-size:14px;font-weight:600;font-family:inherit;outline:none;background:#fff;min-width:160px">
-        </select>
-      </div>
-      <button class="btn btn-success" onclick="ptNewPalletAndSelect()" style="align-self:flex-end;white-space:nowrap"><i class="fas fa-plus"></i> New Pallet</button>
-    </div>
-    <div id="pt-scan-feedback" style="display:none;margin-top:12px;padding:12px 16px;border-radius:10px;font-weight:600;font-size:14px;align-items:center;gap:10px"></div>
-    <div id="pt-scan-last" style="display:none;margin-top:10px;padding:10px 14px;background:#f8fafc;border-radius:9px;font-size:13px;color:#475569;border:1px solid #e2e8f0"></div>
   </div>
 
   <!-- Live Pallet Contents (visible when inside an order and a pallet is active) -->
