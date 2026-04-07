@@ -4203,12 +4203,26 @@ async function ptLoadFromDB() {
 }
 
 async function ptClearPallets() {
-  const ok = await showConfirm('Clear All Pallets', 'This will remove all pallets for this order.', 'Clear All', 'btn-danger');
+  const ok = await showConfirm('Clear All Pallets', 'This will remove all pallets for this order and undo their pulled counts.', 'Clear All', 'btn-danger');
   if (!ok) return;
   const order = pt.orders[pt.selectedOrder];
-  if (order) order.pallets = [];
+  if (order && order.pallets) {
+    // Undo pulled counts for every item on every pallet
+    order.pallets.forEach(pallet => {
+      pallet.items.forEach(item => {
+        const orderItem = order.items.find(it => it.partNumber.toUpperCase() === item.partNumber.toUpperCase());
+        if (orderItem) {
+          order.pulled[orderItem.partNumber] = Math.max(0, (order.pulled[orderItem.partNumber] || 0) - item.qty);
+        }
+      });
+    });
+    order.pallets = [];
+  }
   ptUpdatePalletSelects();
   document.getElementById('pt-pallet-table').innerHTML = '';
+  ptRefreshLivePallet();
+  ptRenderOrders();
+  if (pt.selectedOrder) ptShowDetail(pt.selectedOrder);
   db.savePTSession(pt.orders, []);
 }
 
@@ -4314,6 +4328,9 @@ async function ptClearActivePallet() {
 
   const ok = await showConfirm('Clear Pallet', `Remove all ${pallet.items.length} items from Pallet ${palletIdx + 1}? Their pulled counts will be undone.`, 'Clear', 'btn-danger');
   if (!ok) return;
+
+  // Cancel any pending scan render to prevent race condition
+  if (ptScan._renderTimer) { cancelAnimationFrame(ptScan._renderTimer); ptScan._renderTimer = null; }
 
   // Undo pulled counts for each item on this pallet (within selected order only)
   const order = pt.orders[pt.selectedOrder];
