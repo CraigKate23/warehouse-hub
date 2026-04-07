@@ -3890,15 +3890,21 @@ function ptScan() {
   lastEl.innerHTML = `<strong>${item.name}</strong> &nbsp;|&nbsp; Order: <strong>${order.id}</strong> &nbsp;|&nbsp; Pulled: <strong style="color:#10b981">${pulled}/${item.qty}</strong>${remaining > 0 ? ` &nbsp;|&nbsp; <span style="color:#f59e0b">${remaining} still needed</span>` : ' &nbsp;|&nbsp; <span style="color:#10b981">&#10003; Complete</span>'}`;
 
   dashStats.picks++;
-  logActivity('chart-pie', `PT pulled: ${raw} → ${order.id} (${pulled}/${item.qty})`, '#10b981');
 
-  if (document.getElementById('pt-detail-card').style.display !== 'none' && pt.selectedOrder) {
-    ptShowDetail(pt.selectedOrder);
-  }
-  ptRenderOrders();
-  ptRefreshLivePallet();
-  db.savePTSession(pt.orders, pt.pallets);
+  // Refocus input IMMEDIATELY so the next barcode scan isn't lost
   input.focus();
+
+  // Defer all heavy DOM updates so the input stays responsive during fast scanning
+  if (ptScan._renderTimer) cancelAnimationFrame(ptScan._renderTimer);
+  ptScan._renderTimer = requestAnimationFrame(() => {
+    logActivity('chart-pie', `PT pulled: ${raw} → ${order.id} (${pulled}/${item.qty})`, '#10b981');
+    if (document.getElementById('pt-detail-card').style.display !== 'none' && pt.selectedOrder) {
+      ptShowDetail(pt.selectedOrder);
+    }
+    ptRenderOrders();
+    ptRefreshLivePallet();
+    db.savePTSession(pt.orders, pt.pallets);
+  });
 }
 
 document.getElementById('pt-scan').addEventListener('keypress', e => { if (e.key === 'Enter') ptScan(); });
