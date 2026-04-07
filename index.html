@@ -1425,9 +1425,16 @@ function dashUpdateStats() {
     if (pctEl) { pctEl.textContent = totalOrders > 0 ? `${overallPct}%` : '—'; pctEl.style.color = ringColor; }
   }
 
-  // Pallets
-  const packedUnits = pt.pallets.reduce((s, p) => s + p.items.reduce((s2, i) => s2 + i.qty, 0), 0);
-  setEl('dash-wo-pallets', pt.pallets.length);
+  // Pallets (sum across all orders)
+  let totalPalletCount = 0;
+  let packedUnits = 0;
+  Object.values(pt.orders).forEach(order => {
+    if (order.pallets) {
+      totalPalletCount += order.pallets.length;
+      order.pallets.forEach(p => { packedUnits += p.items.reduce((s, i) => s + i.qty, 0); });
+    }
+  });
+  setEl('dash-wo-pallets', totalPalletCount);
   setEl('dash-wo-packed', packedUnits);
 
   // Customer breakdown (box-level: pulled boxes / total boxes)
@@ -2655,7 +2662,7 @@ function lmSyncToProgressTracker(rows, customer) {
   });
 
   Object.entries(grouped).forEach(([orderId, parts]) => {
-    if (!pt.orders[orderId]) pt.orders[orderId] = { id: orderId, items: [], pulled: {}, _customer: customer };
+    if (!pt.orders[orderId]) pt.orders[orderId] = { id: orderId, items: [], pulled: {}, pallets: [], _customer: customer };
     Object.entries(parts).forEach(([partNumber, { name, count }]) => {
       const existing = pt.orders[orderId].items.find(i => i.partNumber === partNumber);
       if (existing) {
@@ -2698,7 +2705,7 @@ function lmApplyParsedData(rows, sourceDesc) {
 
   // Sync to Progress Tracker and save PT to DB so other users see the new orders
   lmSyncToProgressTracker(tagged, customer);
-  db.savePTSession(pt.orders, pt.pallets);
+  db.savePTSession(pt.orders, []);
 
   lm.scanMode = lmConsignees[customer].scanMode;
   document.getElementById('lm-scan-label').textContent = `Scan ${lmConsignees[customer].scanField} Barcode`;
@@ -3040,7 +3047,7 @@ async function lmLoadFromDB() {
         lmSyncToProgressTracker(rows, customer);
       }
     });
-    if (Object.keys(pt.orders).length > 0) db.savePTSession(pt.orders, pt.pallets);
+    if (Object.keys(pt.orders).length > 0) db.savePTSession(pt.orders, []);
     // Show UI cards since data is present
     document.getElementById('lm-scan-card').style.display = 'block';
     document.getElementById('lm-queue-card').style.display = 'block';
@@ -3499,7 +3506,28 @@ function lmPrintAll() {
 /* ================================================================
    MODULE: PROGRESS TRACKER
    ================================================================ */
-const pt = { orders: {}, pallets: [], selectedOrder: null, selectedPallet: 0 };
+const pt = { orders: {}, selectedOrder: null, selectedPallet: 0 };
+
+/* Helper: get current order's pallets array (per-order pallets) */
+function ptGetPallets() {
+  if (!pt.selectedOrder || !pt.orders[pt.selectedOrder]) return [];
+  const order = pt.orders[pt.selectedOrder];
+  if (!order.pallets) order.pallets = [];
+  return order.pallets;
+}
+
+/* Helper: collect ALL pallets across every order (for packing list exports) */
+function ptAllPallets() {
+  const all = [];
+  Object.values(pt.orders).forEach(order => {
+    if (order.pallets) {
+      order.pallets.forEach((p, i) => {
+        all.push({ ...p, _orderId: order.id, _palletNum: i + 1 });
+      });
+    }
+  });
+  return all;
+}
 
 /* ---- PT Scan Sounds (Web Audio API) ---- */
 const ptAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -3565,7 +3593,7 @@ function ptLoadCSV(file) {
         const name = vals[2].trim();
         const qty = parseInt(vals[3]) || 0;
         if (!orderId || !partNumber || qty <= 0) continue;
-        if (!pt.orders[orderId]) pt.orders[orderId] = { id: orderId, items: [], pulled: {} };
+        if (!pt.orders[orderId]) pt.orders[orderId] = { id: orderId, items: [], pulled: {}, pallets: [] };
         // Consolidate: if part already exists in this order, add to its qty
         const existing = pt.orders[orderId].items.find(i => i.partNumber === partNumber);
         if (existing) {
@@ -3581,7 +3609,7 @@ function ptLoadCSV(file) {
       showMsg('pt-csv-status', `Loaded ${orderCount} orders with ${itemCount} items.`, 'success');
       document.getElementById('pt-orders-card').style.display = 'block';
       ptRenderOrders();
-      db.savePTSession(pt.orders, pt.pallets);
+      db.savePTSession(pt.orders, []);
     } catch(err) { showMsg('pt-csv-status', err.message, 'error'); }
   };
   reader.readAsText(file);
@@ -3698,7 +3726,7 @@ function ptLoadXLSX(file) {
 
       // Build pt.orders from consolidated global map
       for (const item of Object.values(globalMap)) {
-        if (!pt.orders[item.orderId]) pt.orders[item.orderId] = { id: item.orderId, items: [], pulled: {} };
+        if (!pt.orders[item.orderId]) pt.orders[item.orderId] = { id: item.orderId, items: [], pulled: {}, pallets: [] };
         pt.orders[item.orderId].items.push({ partNumber: item.partNumber, name: item.name, qty: item.qty });
         if (!pt.orders[item.orderId].pulled[item.partNumber]) pt.orders[item.orderId].pulled[item.partNumber] = 0;
       }
@@ -3709,7 +3737,7 @@ function ptLoadXLSX(file) {
       showMsg('pt-csv-status', `Excel loaded — ${orderCount} orders with ${itemCount} items.`, 'success');
       document.getElementById('pt-orders-card').style.display = 'block';
       ptRenderOrders();
-      db.savePTSession(pt.orders, pt.pallets);
+      db.savePTSession(pt.orders, []);
     } catch(err) { showMsg('pt-csv-status', err.message, 'error'); }
   };
   reader.readAsArrayBuffer(file);
@@ -3865,16 +3893,17 @@ function ptScan() {
   const pulled = order.pulled[item.partNumber];
   const remaining = item.qty - pulled;
 
-  // Add to active pallet if one is selected
+  // Add to active pallet if one is selected (per-order pallets)
   const palletSel = document.getElementById('pt-active-pallet');
   const palletIdx = palletSel ? parseInt(palletSel.value) : NaN;
+  const orderPallets = ptGetPallets();
   let palletMsg = '';
-  if (!isNaN(palletIdx) && pt.pallets[palletIdx]) {
-    const existingEntry = pt.pallets[palletIdx].items.find(e => e.partNumber === raw && e.orderId === order.id);
+  if (!isNaN(palletIdx) && orderPallets[palletIdx]) {
+    const existingEntry = orderPallets[palletIdx].items.find(e => e.partNumber === raw && e.orderId === order.id);
     if (existingEntry) {
       existingEntry.qty++;
     } else {
-      pt.pallets[palletIdx].items.push({ partNumber: raw, name: item.name, qty: 1, orderId: order.id });
+      orderPallets[palletIdx].items.push({ partNumber: raw, name: item.name, qty: 1, orderId: order.id });
     }
     palletMsg = ` &nbsp;<span style="background:#eef2ff;color:#6366f1;padding:1px 8px;border-radius:10px;font-size:11px">Pallet ${palletIdx + 1}</span>`;
     ptUpdatePalletSelects();
@@ -3903,7 +3932,7 @@ function ptScan() {
     }
     ptRenderOrders();
     ptRefreshLivePallet();
-    db.savePTSession(pt.orders, pt.pallets);
+    db.savePTSession(pt.orders, []);
   });
 }
 
@@ -3911,8 +3940,9 @@ document.getElementById('pt-scan').addEventListener('keypress', e => { if (e.key
 
 // Create a new pallet and immediately select it in the scan bar
 function ptNewPalletAndSelect() {
-  pt.pallets.push({ items: [] });
-  const idx = pt.pallets.length - 1;
+  const pallets = ptGetPallets();
+  pallets.push({ items: [] });
+  const idx = pallets.length - 1;
   ptUpdatePalletSelects();
   const scanSel = document.getElementById('pt-active-pallet');
   if (scanSel) scanSel.value = idx;
@@ -3928,13 +3958,17 @@ function ptNewPalletAndSelect() {
   const sel = document.getElementById('pt-active-pallet');
   if (sel) { sel.style.borderColor = '#6366f1'; setTimeout(() => sel.style.borderColor = '#e2e8f0', 1000); }
   ptRefreshLivePallet();
-  db.savePTSession(pt.orders, pt.pallets);
+  db.savePTSession(pt.orders, []);
 }
 
 function ptShowDetail(orderId) {
   pt.selectedOrder = orderId;
   const order = pt.orders[orderId];
   if (!order) return;
+  // Ensure per-order pallets array exists
+  if (!order.pallets) order.pallets = [];
+  // Auto-create Pallet 1 for this order if empty
+  if (order.pallets.length === 0) order.pallets.push({ items: [] });
 
   const totalQty = order.items.reduce((s,item) => s + item.qty, 0);
   const pulledQty = Object.values(order.pulled).reduce((s,v) => s + v, 0);
@@ -4009,8 +4043,9 @@ function ptAddPallet() {
   document.getElementById('pt-pallet-body').style.display = 'block';
   const chev = document.getElementById('pt-pallet-chevron');
   if (chev) chev.style.transform = 'rotate(180deg)';
-  pt.pallets.push({ items: [] });
-  const idx = pt.pallets.length - 1;
+  const pallets = ptGetPallets();
+  pallets.push({ items: [] });
+  const idx = pallets.length - 1;
   ptUpdatePalletSelects();
   document.getElementById('pt-pallet-select').value = idx;
   pt.selectedPallet = idx;
@@ -4025,18 +4060,7 @@ async function ptDeleteOrder(orderId) {
   if (!ok) return;
 
   const customer = order._customer;
-  const orderParts = order.items.map(i => i.partNumber.toUpperCase());
   delete pt.orders[orderId];
-
-  // Remove this order's items from all pallets
-  pt.pallets.forEach(p => {
-    p.items = p.items.filter(i => {
-      if (i.orderId === orderId) return false;
-      // Also match by part number if orderId wasn't tracked on the pallet item
-      if (!i.orderId && orderParts.includes(i.partNumber.toUpperCase())) return false;
-      return true;
-    });
-  });
 
   // Remove matching rows from Label Maker
   ptRemoveFromLabelMaker(orderId, customer);
@@ -4045,7 +4069,7 @@ async function ptDeleteOrder(orderId) {
   ptRefreshLivePallet();
   ptRenderOrders();
   dashUpdateStats();
-  db.savePTSession(pt.orders, pt.pallets);
+  db.savePTSession(pt.orders, []);
 
   // If detail view was showing this order, go back
   if (pt.selectedOrder === orderId) ptCloseDetail();
@@ -4060,20 +4084,8 @@ async function ptClearCustomer(customer) {
   if (!ok) return;
 
   const orderIds = customerOrders.map(o => o.id);
-  // Collect all part numbers for these orders (for pallet cleanup)
-  const allParts = new Set();
-  customerOrders.forEach(o => o.items.forEach(i => allParts.add(i.partNumber.toUpperCase())));
 
   orderIds.forEach(id => delete pt.orders[id]);
-
-  // Remove this customer's items from all pallets
-  pt.pallets.forEach(p => {
-    p.items = p.items.filter(i => {
-      if (orderIds.includes(i.orderId)) return false;
-      if (!i.orderId && allParts.has(i.partNumber.toUpperCase())) return false;
-      return true;
-    });
-  });
 
   // Remove ALL data for this customer from Label Maker
   lm.csvData = lm.csvData.filter(r => r._customer !== customer);
@@ -4086,7 +4098,7 @@ async function ptClearCustomer(customer) {
   ptRefreshLivePallet();
   ptRenderOrders();
   dashUpdateStats();
-  db.savePTSession(pt.orders, pt.pallets);
+  db.savePTSession(pt.orders, []);
 
   if (pt.selectedOrder && !pt.orders[pt.selectedOrder]) ptCloseDetail();
 }
@@ -4111,7 +4123,7 @@ function ptRemoveFromLabelMaker(orderId, customer) {
 async function ptReset() {
   const ok = await showConfirm('Clear All Data', 'This will remove all orders, scans, and pallets.', 'Clear All', 'btn-danger');
   if (!ok) return;
-  pt.orders = {}; pt.pallets = []; pt.selectedOrder = null; pt.selectedPallet = 0;
+  pt.orders = {}; pt.selectedOrder = null; pt.selectedPallet = 0;
   ptUpdatePalletSelects();
   ['pt-orders-card','pt-scan-card','pt-detail-card','pt-live-pallet-card','pt-pallet-mgmt-card'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
   document.getElementById('pt-summary').style.display = 'none';
@@ -4124,7 +4136,6 @@ async function ptLoadFromDB() {
   if (!row) return;
   if (row.orders && Object.keys(row.orders).length > 0) {
     pt.orders = row.orders;
-    if (Array.isArray(row.pallets)) pt.pallets = row.pallets;
 
     // Consolidate duplicate part numbers within each order (fixes legacy data)
     Object.values(pt.orders).forEach(order => {
@@ -4137,24 +4148,45 @@ async function ptLoadFromDB() {
         }
       });
       order.items = Object.values(merged);
+      // Ensure per-order pallets array exists
+      if (!order.pallets) order.pallets = [];
     });
 
-    // Clean up orphaned pallet items (from orders deleted before cleanup code existed)
-    const validOrderIds = new Set(Object.keys(pt.orders));
-    const validParts = new Set();
-    Object.values(pt.orders).forEach(o => o.items.forEach(i => validParts.add(i.partNumber.toUpperCase())));
-    let orphansRemoved = false;
-    pt.pallets.forEach(p => {
-      const before = p.items.length;
-      p.items = p.items.filter(i => {
-        if (i.orderId && validOrderIds.has(i.orderId)) return true;
-        if (i.orderId && !validOrderIds.has(i.orderId)) return false;
-        // No orderId — keep if part exists in any current order
-        return validParts.has(i.partNumber.toUpperCase());
-      });
-      if (p.items.length < before) orphansRemoved = true;
+    // MIGRATION: if legacy global pallets exist, distribute items to per-order pallets
+    if (Array.isArray(row.pallets) && row.pallets.length > 0) {
+      const hasAnyGlobalItems = row.pallets.some(p => p.items && p.items.length > 0);
+      // Only migrate if orders don't already have per-order pallets
+      const ordersAlreadyHavePallets = Object.values(pt.orders).some(o => o.pallets && o.pallets.length > 0 && o.pallets.some(p => p.items.length > 0));
+      if (hasAnyGlobalItems && !ordersAlreadyHavePallets) {
+        // Group global pallet items by orderId, preserving pallet structure
+        row.pallets.forEach((globalPallet, gIdx) => {
+          if (!globalPallet.items || !globalPallet.items.length) return;
+          // Group items by orderId
+          const byOrder = {};
+          globalPallet.items.forEach(item => {
+            const oid = item.orderId || '';
+            if (!byOrder[oid]) byOrder[oid] = [];
+            byOrder[oid].push(item);
+          });
+          // Add items to each order's pallet at the same index
+          Object.entries(byOrder).forEach(([oid, items]) => {
+            const order = pt.orders[oid];
+            if (!order) return;
+            if (!order.pallets) order.pallets = [];
+            // Extend pallets array to match the global pallet index
+            while (order.pallets.length <= gIdx) order.pallets.push({ items: [] });
+            order.pallets[gIdx].items.push(...items);
+          });
+        });
+        // Save migrated data (clear global pallets)
+        db.savePTSession(pt.orders, []);
+      }
+    }
+
+    // Ensure every order has at least an empty pallets array
+    Object.values(pt.orders).forEach(order => {
+      if (!order.pallets) order.pallets = [];
     });
-    if (orphansRemoved) db.savePTSession(pt.orders, pt.pallets);
 
     // Preserve detail view if user is viewing an order
     const inDetail = document.getElementById('pt-detail-card').style.display !== 'none' && pt.selectedOrder;
@@ -4171,21 +4203,23 @@ async function ptLoadFromDB() {
 }
 
 async function ptClearPallets() {
-  const ok = await showConfirm('Clear All Pallets', 'This will remove all pallets and their contents.', 'Clear All', 'btn-danger');
+  const ok = await showConfirm('Clear All Pallets', 'This will remove all pallets for this order.', 'Clear All', 'btn-danger');
   if (!ok) return;
-  pt.pallets = [];
+  const order = pt.orders[pt.selectedOrder];
+  if (order) order.pallets = [];
   ptUpdatePalletSelects();
   document.getElementById('pt-pallet-table').innerHTML = '';
   db.savePTSession(pt.orders, []);
 }
 
-// Keeps both the detail-section select AND the scan-bar select in sync
+// Keeps both the detail-section select AND the scan-bar select in sync (per-order pallets)
 function ptUpdatePalletSelects() {
-  // Auto-create Pallet 1 if none exist
-  if (pt.pallets.length === 0 && Object.keys(pt.orders).length > 0) {
-    pt.pallets.push({ items: [] });
+  const pallets = ptGetPallets();
+  // Auto-create Pallet 1 if none exist and we're inside an order
+  if (pallets.length === 0 && pt.selectedOrder && pt.orders[pt.selectedOrder]) {
+    pallets.push({ items: [] });
   }
-  const palletOpts = pt.pallets.map((p,i) => `<option value="${i}">Pallet ${i+1} (${p.items.length} item${p.items.length!==1?'s':''})</option>`).join('');
+  const palletOpts = pallets.map((p,i) => `<option value="${i}">Pallet ${i+1} (${p.items.length} item${p.items.length!==1?'s':''})</option>`).join('');
   const detailSel = document.getElementById('pt-pallet-select');
   const scanSel   = document.getElementById('pt-active-pallet');
   // Preserve selected values before rebuilding
@@ -4194,13 +4228,14 @@ function ptUpdatePalletSelects() {
   if (detailSel) detailSel.innerHTML = palletOpts;
   if (scanSel)   scanSel.innerHTML   = palletOpts;
   // Restore selections (clamp to valid range)
-  if (detailSel) detailSel.value = Math.min(detailVal, pt.pallets.length - 1);
-  if (scanSel)   scanSel.value   = Math.min(scanVal, pt.pallets.length - 1);
+  if (detailSel) detailSel.value = Math.min(detailVal, Math.max(0, pallets.length - 1));
+  if (scanSel)   scanSel.value   = Math.min(scanVal, Math.max(0, pallets.length - 1));
 }
 
 function ptShowPallet() {
   pt.selectedPallet = parseInt(document.getElementById('pt-pallet-select').value) || 0;
-  const pallet = pt.pallets[pt.selectedPallet];
+  const pallets = ptGetPallets();
+  const pallet = pallets[pt.selectedPallet];
   if (!pallet) { document.getElementById('pt-pallet-table').innerHTML = ''; return; }
   const tbody = document.getElementById('pt-pallet-table');
   tbody.innerHTML = '';
@@ -4215,28 +4250,28 @@ function ptShowPallet() {
 }
 
 function ptAddPartToPallet() {
-  if (!pt.pallets.length) { ptAddPallet(); }
+  const pallets = ptGetPallets();
+  if (!pallets.length) { ptAddPallet(); }
   const partNumber = document.getElementById('pt-pallet-part').value.trim().toUpperCase();
   const qty = parseInt(document.getElementById('pt-pallet-qty').value) || 1;
   if (!partNumber) return;
   if (qty <= 0) return;
 
-  // Find the part name from orders
+  // Only work within the selected order
+  const order = pt.orders[pt.selectedOrder];
+  if (!order) return;
+
+  // Find the part name from this order
   let name = '';
-  Object.values(pt.orders).forEach(order => {
-    const item = order.items.find(it => it.partNumber.toUpperCase() === partNumber);
-    if (item) name = item.name;
-  });
+  const orderItem = order.items.find(it => it.partNumber.toUpperCase() === partNumber);
+  if (orderItem) {
+    name = orderItem.name;
+    // Mark as pulled in this order only
+    order.pulled[orderItem.partNumber] = (order.pulled[orderItem.partNumber] || 0) + qty;
+  }
 
-  // Mark as pulled in orders
-  Object.values(pt.orders).forEach(order => {
-    const item = order.items.find(it => it.partNumber.toUpperCase() === partNumber);
-    if (item) {
-      order.pulled[item.partNumber] = (order.pulled[item.partNumber] || 0) + qty;
-    }
-  });
-
-  pt.pallets[pt.selectedPallet].items.push({ partNumber, name, qty });
+  const currentPallets = ptGetPallets();
+  currentPallets[pt.selectedPallet].items.push({ partNumber, name, qty, orderId: order.id });
   ptUpdatePalletSelects();
   ptShowPallet();
   ptRenderOrders();
@@ -4249,16 +4284,18 @@ function ptAddPartToPallet() {
 document.getElementById('pt-pallet-part').addEventListener('keypress', e => { if (e.key === 'Enter') ptAddPartToPallet(); });
 
 function ptRemoveFromPallet(index) {
-  const pallet = pt.pallets[pt.selectedPallet];
+  const pallets = ptGetPallets();
+  const pallet = pallets[pt.selectedPallet];
   if (!pallet) return;
   const item = pallet.items[index];
-  // Undo the pulled count
-  Object.values(pt.orders).forEach(order => {
+  // Undo the pulled count in the selected order only
+  const order = pt.orders[pt.selectedOrder];
+  if (order) {
     const orderItem = order.items.find(it => it.partNumber.toUpperCase() === item.partNumber.toUpperCase());
     if (orderItem) {
       order.pulled[orderItem.partNumber] = Math.max(0, (order.pulled[orderItem.partNumber] || 0) - item.qty);
     }
-  });
+  }
   pallet.items.splice(index, 1);
   ptUpdatePalletSelects();
   ptShowPallet();
@@ -4270,22 +4307,24 @@ function ptRemoveFromPallet(index) {
 async function ptClearActivePallet() {
   const scanSel = document.getElementById('pt-active-pallet');
   const palletIdx = scanSel ? parseInt(scanSel.value) : NaN;
-  if (isNaN(palletIdx) || !pt.pallets[palletIdx]) return;
-  const pallet = pt.pallets[palletIdx];
+  const pallets = ptGetPallets();
+  if (isNaN(palletIdx) || !pallets[palletIdx]) return;
+  const pallet = pallets[palletIdx];
   if (!pallet.items.length) return;
 
   const ok = await showConfirm('Clear Pallet', `Remove all ${pallet.items.length} items from Pallet ${palletIdx + 1}? Their pulled counts will be undone.`, 'Clear', 'btn-danger');
   if (!ok) return;
 
-  // Undo pulled counts for each item on this pallet
-  pallet.items.forEach(item => {
-    Object.values(pt.orders).forEach(order => {
+  // Undo pulled counts for each item on this pallet (within selected order only)
+  const order = pt.orders[pt.selectedOrder];
+  if (order) {
+    pallet.items.forEach(item => {
       const orderItem = order.items.find(it => it.partNumber.toUpperCase() === item.partNumber.toUpperCase());
       if (orderItem) {
         order.pulled[orderItem.partNumber] = Math.max(0, (order.pulled[orderItem.partNumber] || 0) - item.qty);
       }
     });
-  });
+  }
 
   pallet.items = [];
   ptUpdatePalletSelects();
@@ -4293,7 +4332,7 @@ async function ptClearActivePallet() {
   ptRefreshLivePallet();
   ptRenderOrders();
   if (pt.selectedOrder) ptShowDetail(pt.selectedOrder);
-  db.savePTSession(pt.orders, pt.pallets);
+  db.savePTSession(pt.orders, []);
 }
 
 /* ---- Live Pallet Viewer ---- */
@@ -4301,13 +4340,14 @@ function ptRefreshLivePallet() {
   const scanSel = document.getElementById('pt-active-pallet');
   const palletIdx = scanSel ? parseInt(scanSel.value) : NaN;
   const card = document.getElementById('pt-live-pallet-card');
+  const pallets = ptGetPallets();
 
-  if (isNaN(palletIdx) || !pt.pallets[palletIdx]) {
+  if (isNaN(palletIdx) || !pallets[palletIdx]) {
     card.style.display = 'none';
     return;
   }
   card.style.display = 'block';
-  const pallet = pt.pallets[palletIdx];
+  const pallet = pallets[palletIdx];
   document.getElementById('pt-live-pallet-label').textContent = `Pallet ${palletIdx + 1}`;
   document.getElementById('pt-live-pallet-count').textContent = `(${pallet.items.reduce((s,i) => s + i.qty, 0)} units, ${pallet.items.length} line${pallet.items.length !== 1 ? 's' : ''})`;
 
@@ -4338,16 +4378,33 @@ function ptRefreshLivePallet() {
 // Refresh live pallet whenever the dropdown changes
 document.getElementById('pt-active-pallet').addEventListener('change', ptRefreshLivePallet);
 
-/* ---- Packing List Download (all pallets, flat 4-column format) ---- */
+/* ---- Packing List Download (per-order pallets, flat 4-column format) ---- */
 function ptDownloadPackingList() {
-  if (!pt.pallets.length) return;
-
+  // If viewing a specific order, export just that order's pallets
+  // Otherwise export all orders' pallets
   let csv = 'PO#,Pallet#,Part#,QTY\n';
-  pt.pallets.forEach((pallet, pi) => {
-    pallet.items.forEach(item => {
-      csv += `"${item.orderId || ''}",${pi + 1},"${item.partNumber}",${item.qty}\n`;
+  if (pt.selectedOrder && pt.orders[pt.selectedOrder]) {
+    const order = pt.orders[pt.selectedOrder];
+    if (!order.pallets || !order.pallets.length) return;
+    order.pallets.forEach((pallet, pi) => {
+      pallet.items.forEach(item => {
+        csv += `"${item.orderId || order.id}",${pi + 1},"${item.partNumber}",${item.qty}\n`;
+      });
     });
-  });
+  } else {
+    // All orders
+    let hasItems = false;
+    Object.values(pt.orders).forEach(order => {
+      if (!order.pallets) return;
+      order.pallets.forEach((pallet, pi) => {
+        pallet.items.forEach(item => {
+          hasItems = true;
+          csv += `"${item.orderId || order.id}",${pi + 1},"${item.partNumber}",${item.qty}\n`;
+        });
+      });
+    });
+    if (!hasItems) return;
+  }
 
   downloadBlob(csv, `packing_list_${todayStr()}.csv`);
 }
@@ -4366,14 +4423,12 @@ function ptExportMissing() {
 
 function ptExportPulled() {
   let csv = 'Order,Pallet #,Part,Name,Qty\n';
-  pt.pallets.forEach((pallet, pi) => {
-    pallet.items.forEach(item => {
-      // Find which order this part belongs to
-      let orderId = '';
-      Object.values(pt.orders).forEach(order => {
-        if (order.items.some(it => it.partNumber.toUpperCase() === item.partNumber.toUpperCase())) orderId = order.id;
+  Object.values(pt.orders).forEach(order => {
+    if (!order.pallets) return;
+    order.pallets.forEach((pallet, pi) => {
+      pallet.items.forEach(item => {
+        csv += `"${order.id}",${pi+1},"${item.partNumber}","${item.name}",${item.qty}\n`;
       });
-      csv += `"${orderId}",${pi+1},"${item.partNumber}","${item.name}",${item.qty}\n`;
     });
   });
   downloadBlob(csv, `pulled_items_${todayStr()}.csv`);
