@@ -3030,15 +3030,17 @@ async function lmLoadFromDB() {
   if (!row) return;
   if (Array.isArray(row.csv_data) && row.csv_data.length) {
     lm.csvData = row.csv_data;
-    // Rebuild Progress Tracker orders from the loaded data ONLY if PT is empty
-    // (PT loads its own state from DB; re-syncing here would double the quantities)
-    if (Object.keys(pt.orders).length === 0) {
-      const customers = [...new Set(lm.csvData.map(r => r._customer).filter(Boolean))];
-      customers.forEach(customer => {
+    // Rebuild Progress Tracker orders for any customer not already in PT
+    // (PT loads its own state from DB; only sync customers whose orders are missing)
+    const customers = [...new Set(lm.csvData.map(r => r._customer).filter(Boolean))];
+    const ptCustomers = new Set(Object.values(pt.orders).map(o => o._customer).filter(Boolean));
+    customers.forEach(customer => {
+      if (!ptCustomers.has(customer)) {
         const rows = lm.csvData.filter(r => r._customer === customer);
         lmSyncToProgressTracker(rows, customer);
-      });
-    }
+      }
+    });
+    if (Object.keys(pt.orders).length > 0) db.savePTSession(pt.orders, pt.pallets);
     // Show UI cards since data is present
     document.getElementById('lm-scan-card').style.display = 'block';
     document.getElementById('lm-queue-card').style.display = 'block';
