@@ -3832,9 +3832,11 @@ function ptScan() {
   const order = pt.orders[pt.selectedOrder];
   let hit = null;
   order.items.forEach(item => {
-    if (item.partNumber.toUpperCase() === raw) {
+    if (item.partNumber.toUpperCase() === raw && !hit) {
+      // Total qty needed for this part across ALL line items in the order
+      const totalNeeded = order.items.filter(i => i.partNumber === item.partNumber).reduce((s, i) => s + i.qty, 0);
       const pulled = order.pulled[item.partNumber] || 0;
-      if (pulled < item.qty) hit = { order, item };
+      if (pulled < totalNeeded) hit = { order, item };
     }
   });
 
@@ -3853,7 +3855,8 @@ function ptScan() {
   const { item } = hit;
   order.pulled[item.partNumber] = (order.pulled[item.partNumber] || 0) + 1;
   const pulled = order.pulled[item.partNumber];
-  const remaining = item.qty - pulled;
+  const totalNeeded = order.items.filter(i => i.partNumber === item.partNumber).reduce((s, i) => s + i.qty, 0);
+  const remaining = totalNeeded - pulled;
 
   // Add to active pallet if one is selected
   const palletSel = document.getElementById('pt-active-pallet');
@@ -3877,7 +3880,7 @@ function ptScan() {
   setTimeout(() => { feedback.style.display = 'none'; }, 2500);
 
   lastEl.style.display = 'block';
-  lastEl.innerHTML = `<strong>${item.name}</strong> &nbsp;|&nbsp; Order: <strong>${order.id}</strong> &nbsp;|&nbsp; Pulled: <strong style="color:#10b981">${pulled}/${item.qty}</strong>${remaining > 0 ? ` &nbsp;|&nbsp; <span style="color:#f59e0b">${remaining} still needed</span>` : ' &nbsp;|&nbsp; <span style="color:#10b981">&#10003; Complete</span>'}`;
+  lastEl.innerHTML = `<strong>${item.name}</strong> &nbsp;|&nbsp; Order: <strong>${order.id}</strong> &nbsp;|&nbsp; Pulled: <strong style="color:#10b981">${pulled}/${totalNeeded}</strong>${remaining > 0 ? ` &nbsp;|&nbsp; <span style="color:#f59e0b">${remaining} still needed</span>` : ' &nbsp;|&nbsp; <span style="color:#10b981">&#10003; Complete</span>'}`;
 
   dashStats.picks++;
   logActivity('chart-pie', `PT pulled: ${raw} → ${order.id} (${pulled}/${item.qty})`, '#10b981');
@@ -3941,10 +3944,15 @@ function ptShowDetail(orderId) {
 
   const tbody = document.getElementById('pt-detail-table');
   tbody.innerHTML = '';
+  // Track how many pulled units have been allocated to rows so far (per part number)
+  const allocatedPulled = {};
   order.items.forEach(item => {
-    const pulled = order.pulled[item.partNumber] || 0;
-    const missing = Math.max(0, item.qty - pulled);
-    const itemPct = item.qty > 0 ? Math.round(pulled / item.qty * 100) : 0;
+    const totalPulledForPart = order.pulled[item.partNumber] || 0;
+    const alreadyAllocated = allocatedPulled[item.partNumber] || 0;
+    // This row gets up to item.qty from the remaining pulled pool
+    const rowPulled = Math.min(item.qty, Math.max(0, totalPulledForPart - alreadyAllocated));
+    allocatedPulled[item.partNumber] = alreadyAllocated + item.qty;
+    const missing = Math.max(0, item.qty - rowPulled);
     const status = missing <= 0
       ? '<span style="display:inline-flex;align-items:center;gap:4px;background:#f0fdf4;color:#059669;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px"><i class="fas fa-check"></i> Complete</span>'
       : `<span style="display:inline-flex;align-items:center;gap:4px;background:#fffbeb;color:#d97706;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px"><i class="fas fa-clock"></i> ${missing} left</span>`;
@@ -3952,7 +3960,7 @@ function ptShowDetail(orderId) {
       <td style="font-weight:600">${item.partNumber}</td>
       <td>${item.name}</td>
       <td>${item.qty}</td>
-      <td>${pulled}</td>
+      <td>${rowPulled}</td>
       <td>${missing}</td>
       <td>${status}</td>
     </tr>`;
