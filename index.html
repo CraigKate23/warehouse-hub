@@ -779,16 +779,17 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
         </select>
       </div>
       <div class="form-group">
-        <label>Printer <span id="lm-bp-badge" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;background:#fee2e2;color:#dc2626;margin-left:6px;vertical-align:middle">● No BrowserPrint</span></label>
+        <label>Printer <span id="lm-bp-badge" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;background:#fee2e2;color:#dc2626;margin-left:6px;vertical-align:middle">● No Printer</span></label>
         <div style="display:flex;gap:6px;align-items:center">
           <select id="lm-printer-select" style="flex:1;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:9px;font-family:inherit;font-size:13px;font-weight:500;outline:none">
             <option value="0">Default (Browser Print)</option>
           </select>
-          <button class="btn btn-ghost" onclick="lmDetectZebraPrinters()" style="padding:9px 12px" title="Auto-detect Zebra printers"><i class="fas fa-sync"></i></button>
+          <button class="btn btn-ghost" onclick="lmConnectWebUSB(true)" style="padding:9px 12px" title="Connect USB printer (no extra software needed)"><i class="fab fa-usb"></i></button>
+          <button class="btn btn-ghost" onclick="lmDetectZebraPrinters()" style="padding:9px 12px" title="Auto-detect via BrowserPrint"><i class="fas fa-sync"></i></button>
           <button class="btn btn-ghost" onclick="lmToggleAddPrinter()" style="padding:9px 12px" title="Add printer manually"><i class="fas fa-plus"></i></button>
         </div>
         <div id="lm-bp-hint" style="display:none;font-size:11px;color:#64748b;margin-top:5px">
-          For silent printing, install <a href="https://www.zebra.com/us/en/software/printer-software/browser-print.html" target="_blank" style="color:#3b82f6">Zebra BrowserPrint</a>, then click <i class="fas fa-sync"></i> to detect.
+          Click <i class="fab fa-usb"></i> to connect a Zebra USB printer directly (recommended). Or install <a href="https://www.zebra.com/us/en/software/printer-software/browser-print.html" target="_blank" style="color:#3b82f6">Zebra BrowserPrint</a> and click <i class="fas fa-sync"></i>.
         </div>
       </div>
     </div>
@@ -2205,11 +2206,23 @@ function dsdLmPrintAll() {
 
 // DSD shares the cached Zebra device with LM for instant sends.
 function dsdLmSendToPrinter(zpl, htmlFallback) {
-  // Fast path: cached device
+  // ① WebUSB — fastest path
+  if (lmWebUSBDevice) {
+    lmSendViaWebUSB(zpl).then(ok => {
+      if (!ok) dsdLmSendToPrinterLegacy(zpl, htmlFallback);
+    });
+    return;
+  }
+  // ② BrowserPrint / browser print fallback
+  dsdLmSendToPrinterLegacy(zpl, htmlFallback);
+}
+
+function dsdLmSendToPrinterLegacy(zpl, htmlFallback) {
+  // Fast path: cached BrowserPrint device
   if (lmCachedZebraDevice) {
     lmCachedZebraDevice.send(zpl, () => {}, (err) => {
       lmCachedZebraDevice = null;
-      dsdLmSendToPrinter(zpl, htmlFallback);  // retry via discovery
+      dsdLmSendToPrinterLegacy(zpl, htmlFallback);
     });
     return;
   }
@@ -3193,19 +3206,23 @@ function lmUpdateBPStatus() {
   const badge = document.getElementById('lm-bp-badge');
   const hint  = document.getElementById('lm-bp-hint');
   if (!badge) return;
-  if (window.BrowserPrint) {
+  if (lmWebUSBDevice) {
+    badge.style.background = '#dcfce7'; badge.style.color = '#16a34a';
+    badge.textContent = `● USB: ${lmWebUSBDevice.productName || 'Connected'}`;
+    if (hint) hint.style.display = 'none';
+  } else if (window.BrowserPrint) {
     badge.style.background = '#dcfce7'; badge.style.color = '#16a34a';
     badge.textContent = '● BrowserPrint Ready';
     if (hint) hint.style.display = 'none';
   } else {
     badge.style.background = '#fee2e2'; badge.style.color = '#dc2626';
-    badge.textContent = '● No BrowserPrint';
+    badge.textContent = '● No Printer';
     if (hint) hint.style.display = 'block';
   }
 }
 
 function lmDetectZebraPrinters() {
-  lmCachedZebraDevice = null;  // Clear cache so next print re-discovers
+  lmCachedZebraDevice = null;  // Clear BrowserPrint cache so next print re-discovers
   if (!window.BrowserPrint) {
     lmUpdateBPStatus();
     showMsg('lm-scan-status', 'Zebra BrowserPrint not detected. See the hint below the printer selector.', 'error');
@@ -3287,19 +3304,105 @@ function lmDoBrowserPrint(htmlContent, onDone) {
   }, 200);
 }
 
+// ── WebUSB direct printing (no extra software needed) ──
+const ZEBRA_VENDOR_ID = 0x0A5F;  // Zebra Technologies
+let lmWebUSBDevice = null;
+
+async function lmConnectWebUSB(userGesture) {
+  // First check for previously paired devices (no popup)
+  if (navigator.usb) {
+    try {
+      const devices = await navigator.usb.getDevices();
+      const zebra = devices.find(d => d.vendorId === ZEBRA_VENDOR_ID);
+      if (zebra) {
+        if (zebra.opened) { lmWebUSBDevice = zebra; lmUpdateBPStatus(); return zebra; }
+        await zebra.open();
+        await zebra.selectConfiguration(1);
+        await zebra.claimInterface(0);
+        lmWebUSBDevice = zebra;
+        lmUpdateBPStatus();
+        return zebra;
+      }
+    } catch (e) { console.warn('WebUSB auto-reconnect failed:', e); }
+  }
+  // If called from a user gesture (button click), show the picker
+  if (userGesture && navigator.usb) {
+    try {
+      const device = await navigator.usb.requestDevice({ filters: [{ vendorId: ZEBRA_VENDOR_ID }] });
+      await device.open();
+      await device.selectConfiguration(1);
+      await device.claimInterface(0);
+      lmWebUSBDevice = device;
+      showMsg('lm-scan-status', `USB printer connected: ${device.productName}`, 'success');
+      lmUpdateBPStatus();
+      return device;
+    } catch (e) {
+      if (e.name !== 'NotFoundError') showMsg('lm-scan-status', `USB error: ${e.message}`, 'error');
+      return null;
+    }
+  }
+  return null;
+}
+
+async function lmSendViaWebUSB(zpl) {
+  if (!lmWebUSBDevice) return false;
+  try {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(zpl);
+    await lmWebUSBDevice.transferOut(1, data);
+    return true;
+  } catch (e) {
+    console.warn('WebUSB send failed:', e);
+    // Device disconnected — clear cache
+    lmWebUSBDevice = null;
+    lmUpdateBPStatus();
+    return false;
+  }
+}
+
+// Try to reconnect to a previously paired USB printer on page load
+setTimeout(() => { if (navigator.usb) lmConnectWebUSB(false); }, 1000);
+
+// Listen for USB disconnect events
+if (navigator.usb) {
+  navigator.usb.addEventListener('disconnect', (e) => {
+    if (lmWebUSBDevice && e.device === lmWebUSBDevice) {
+      lmWebUSBDevice = null;
+      lmUpdateBPStatus();
+      showMsg('lm-scan-status', 'USB printer disconnected.', 'error');
+    }
+  });
+}
+
 // Cached BrowserPrint device — avoids a localhost round-trip on every single label.
 let lmCachedZebraDevice = null;
 
 function lmSendToZebraPrinter(zpl, htmlFallback, onDone) {
-  // Fast path: if we already have a cached device, fire ZPL immediately.
+  // ① WebUSB — fastest, no extra software needed
+  if (lmWebUSBDevice) {
+    lmSendViaWebUSB(zpl).then(ok => {
+      if (ok) { if (onDone) onDone(); }
+      else {
+        // WebUSB failed, fall through to BrowserPrint / browser print
+        showMsg('lm-scan-status', 'USB send failed — trying BrowserPrint...', 'error');
+        lmSendToZebraPrinterLegacy(zpl, htmlFallback, onDone);
+      }
+    });
+    return;
+  }
+  // ② BrowserPrint / browser print fallback
+  lmSendToZebraPrinterLegacy(zpl, htmlFallback, onDone);
+}
+
+function lmSendToZebraPrinterLegacy(zpl, htmlFallback, onDone) {
+  // Fast path: if we already have a cached BrowserPrint device, fire ZPL immediately.
   if (lmCachedZebraDevice) {
     lmCachedZebraDevice.send(zpl,
       () => { if (onDone) onDone(); },
       (err) => {
-        // Device went away — clear cache and retry once via full discovery.
         showMsg('lm-scan-status', `Printer error: ${err}. Retrying...`, 'error');
         lmCachedZebraDevice = null;
-        lmSendToZebraPrinter(zpl, htmlFallback, onDone);
+        lmSendToZebraPrinterLegacy(zpl, htmlFallback, onDone);
       }
     );
     return;
@@ -3314,7 +3417,7 @@ function lmSendToZebraPrinter(zpl, htmlFallback, onDone) {
         ? (list.find(d => d.name === selectedPrinter.name) || list[0])
         : list[0];
       if (target) {
-        lmCachedZebraDevice = target;  // Cache for all subsequent prints
+        lmCachedZebraDevice = target;
         target.send(zpl,
           () => { if (onDone) onDone(); },
           (err) => {
