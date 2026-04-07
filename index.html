@@ -3309,6 +3309,9 @@ const ZEBRA_VENDOR_ID = 0x0A5F;  // Zebra Technologies
 let lmWebUSBDevice = null;
 
 async function lmConnectWebUSB(userGesture) {
+  // Skip WebUSB entirely if BrowserPrint is running — it already owns the USB interface
+  if (window.BrowserPrint && !userGesture) return null;
+
   // First check for previously paired devices (no popup)
   if (navigator.usb) {
     try {
@@ -3323,7 +3326,15 @@ async function lmConnectWebUSB(userGesture) {
         lmUpdateBPStatus();
         return zebra;
       }
-    } catch (e) { console.warn('WebUSB auto-reconnect failed:', e); }
+    } catch (e) {
+      // "Unable to claim interface" = another process (BrowserPrint) has the printer — that's fine
+      if (e.message && e.message.includes('claim')) {
+        console.info('WebUSB: interface claimed by another process (likely BrowserPrint) — using BrowserPrint instead.');
+        lmUpdateBPStatus();
+        return null;
+      }
+      console.warn('WebUSB auto-reconnect failed:', e);
+    }
   }
   // If called from a user gesture (button click), show the picker
   if (userGesture && navigator.usb) {
@@ -3337,7 +3348,12 @@ async function lmConnectWebUSB(userGesture) {
       lmUpdateBPStatus();
       return device;
     } catch (e) {
-      if (e.name !== 'NotFoundError') showMsg('lm-scan-status', `USB error: ${e.message}`, 'error');
+      if (e.name === 'NotFoundError') return null;  // User cancelled picker
+      if (e.message && e.message.includes('claim')) {
+        showMsg('lm-scan-status', 'Printer is in use by BrowserPrint — no action needed, printing will work via BrowserPrint.', 'success');
+      } else {
+        showMsg('lm-scan-status', `USB error: ${e.message}`, 'error');
+      }
       return null;
     }
   }
