@@ -3302,6 +3302,28 @@ document.getElementById('lm-printer-select').addEventListener('change', () => {
   if (removeBtn) removeBtn.style.display = parseInt(document.getElementById('lm-printer-select').value) > 0 ? 'inline-flex' : 'none';
 });
 
+/* ---- Print lock: prevents overlapping print jobs ---- */
+let lmPrintBusy = false;
+const lmPrintQueue = [];   // pending { fn } objects waiting for the lock
+
+function lmAcquirePrintLock(fn) {
+  if (!lmPrintBusy) {
+    lmPrintBusy = true;
+    fn();
+  } else {
+    lmPrintQueue.push(fn);
+  }
+}
+
+function lmReleasePrintLock() {
+  if (lmPrintQueue.length > 0) {
+    const next = lmPrintQueue.shift();
+    next();                   // lock stays held for the next job
+  } else {
+    lmPrintBusy = false;
+  }
+}
+
 /* ---- Printing helpers ---- */
 function lmDoBrowserPrint(htmlContent, onDone) {
   // Frame is always rendered off-screen (via CSS) so JsBarcode can draw on it.
@@ -3312,9 +3334,30 @@ function lmDoBrowserPrint(htmlContent, onDone) {
   document.body.classList.add('printing-lm');
   document.body.classList.remove('printing-dsdlm');
   setTimeout(() => {
+    // Use afterprint to confirm the print actually went through.
+    // If the user cancels the dialog, afterprint still fires but we
+    // detect cancellation isn't reliably distinguishable — however
+    // afterprint at least waits for the dialog to close, unlike the
+    // old fire-and-forget approach.  We also add a safety timeout
+    // in case afterprint never fires (some older browsers).
+    let settled = false;
+    const settle = (success) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener('afterprint', onAfterPrint);
+      clearTimeout(safetyTimer);
+      setTimeout(() => { document.body.classList.remove('printing-lm'); }, 500);
+      if (success && onDone) onDone();
+      if (!success) {
+        showMsg('lm-scan-status', 'Print cancelled or failed — label stays in queue.', 'error');
+        lmReleasePrintLock();
+      }
+    };
+    const onAfterPrint = () => settle(true);
+    // Safety: if afterprint doesn't fire within 60s, assume cancelled
+    const safetyTimer = setTimeout(() => settle(false), 60000);
+    window.addEventListener('afterprint', onAfterPrint);
     window.print();
-    setTimeout(() => { document.body.classList.remove('printing-lm'); }, 500);
-    if (onDone) onDone();
   }, 200);
 }
 
@@ -3472,17 +3515,20 @@ function lmPrintOne(indexOrItem) {
   // Snapshot the ZPL & HTML before async send (queue may shift before callback)
   const zpl = lmBuildZPL(item);
   const html = lmBuildLabelHTML(item);
-  lmSendToZebraPrinter(zpl, html, () => {
-    // Guard: only move if still in queue (prevents double-splice)
-    const idx = lm.queue.indexOf(item);
-    if (idx === -1) return;  // already moved by a prior callback
-    dashStats.labels++;
-    logActivity('check-circle', `Printed: ${item.orderNo} / ${item.mat}`, '#10b981');
-    lm.printed.push(item);
-    lm.queue.splice(idx, 1);
-    lmRefreshQueue();
-    db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
-    dashUpdateStats();
+  lmAcquirePrintLock(() => {
+    lmSendToZebraPrinter(zpl, html, () => {
+      // Guard: only move if still in queue (prevents double-splice)
+      const idx = lm.queue.indexOf(item);
+      if (idx === -1) { lmReleasePrintLock(); return; }  // already moved by a prior callback
+      dashStats.labels++;
+      logActivity('check-circle', `Printed: ${item.orderNo} / ${item.mat}`, '#10b981');
+      lm.printed.push(item);
+      lm.queue.splice(idx, 1);
+      lmRefreshQueue();
+      db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+      dashUpdateStats();
+      lmReleasePrintLock();
+    });
   });
 }
 
@@ -3492,17 +3538,22 @@ function lmPrintAll() {
   if (!customerQueue.length) { showMsg('lm-scan-status', 'Queue is empty.', 'error'); return; }
   const allZpl  = customerQueue.map(item => lmBuildZPL(item)).join('\n');
   const allHtml = customerQueue.map(item => lmBuildLabelHTML(item)).join('');
-  lmSendToZebraPrinter(allZpl, allHtml, () => {
-    // Move all printed items from queue to printed
-    customerQueue.forEach(item => {
-      dashStats.labels++;
-      lm.printed.push(item);
+  lmAcquirePrintLock(() => {
+    lmSendToZebraPrinter(allZpl, allHtml, () => {
+      // Move printed items from queue to printed — with guard against double-move
+      customerQueue.forEach(item => {
+        const idx = lm.queue.indexOf(item);
+        if (idx === -1) return;  // already moved
+        dashStats.labels++;
+        lm.printed.push(item);
+        lm.queue.splice(idx, 1);
+      });
+      logActivity('check-circle', `Batch printed: ${customerQueue.length} labels for ${lmConsignees[customer].name}`, '#10b981');
+      lmRefreshQueue();
+      db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+      dashUpdateStats();
+      lmReleasePrintLock();
     });
-    lm.queue = lm.queue.filter(r => r._customer !== customer);
-    logActivity('check-circle', `Batch printed: ${customerQueue.length} labels for ${lmConsignees[customer].name}`, '#10b981');
-    lmRefreshQueue();
-    db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
-    dashUpdateStats();
   });
 }
 
@@ -3892,26 +3943,32 @@ function ptScan() {
   }
 
   const { item } = hit;
+
+  // ── Ensure a pallet exists — pulled items MUST always be on a pallet ──
+  let orderPallets = ptGetPallets();
+  if (orderPallets.length === 0) {
+    orderPallets.push({ items: [] });
+    ptUpdatePalletSelects();
+  }
+  const palletSel = document.getElementById('pt-active-pallet');
+  let palletIdx = palletSel ? parseInt(palletSel.value) : 0;
+  // Clamp to valid range (fallback to first pallet)
+  if (isNaN(palletIdx) || !orderPallets[palletIdx]) palletIdx = 0;
+
+  // Add to pallet FIRST — pulled count only increments when item is on a pallet
+  const existingEntry = orderPallets[palletIdx].items.find(e => e.partNumber === raw && e.orderId === order.id);
+  if (existingEntry) {
+    existingEntry.qty++;
+  } else {
+    orderPallets[palletIdx].items.push({ partNumber: raw, name: item.name, qty: 1, orderId: order.id });
+  }
+  // NOW increment pulled — guaranteed to be backed by a pallet entry
   order.pulled[item.partNumber] = (order.pulled[item.partNumber] || 0) + 1;
   const pulled = order.pulled[item.partNumber];
   const remaining = item.qty - pulled;
-
-  // Add to active pallet if one is selected (per-order pallets)
-  const palletSel = document.getElementById('pt-active-pallet');
-  const palletIdx = palletSel ? parseInt(palletSel.value) : NaN;
-  const orderPallets = ptGetPallets();
-  let palletMsg = '';
-  if (!isNaN(palletIdx) && orderPallets[palletIdx]) {
-    const existingEntry = orderPallets[palletIdx].items.find(e => e.partNumber === raw && e.orderId === order.id);
-    if (existingEntry) {
-      existingEntry.qty++;
-    } else {
-      orderPallets[palletIdx].items.push({ partNumber: raw, name: item.name, qty: 1, orderId: order.id });
-    }
-    palletMsg = ` &nbsp;<span style="background:#eef2ff;color:#6366f1;padding:1px 8px;border-radius:10px;font-size:11px">Pallet ${palletIdx + 1}</span>`;
-    ptUpdatePalletSelects();
-    ptShowPallet();
-  }
+  const palletMsg = ` &nbsp;<span style="background:#eef2ff;color:#6366f1;padding:1px 8px;border-radius:10px;font-size:11px">Pallet ${palletIdx + 1}</span>`;
+  ptUpdatePalletSelects();
+  ptShowPallet();
 
   ptPlaySound('success');
   feedback.style.cssText = 'display:flex;margin-top:12px;padding:12px 16px;border-radius:10px;font-weight:600;font-size:14px;align-items:center;gap:10px;background:#f0fdf4;color:#059669;border-left:4px solid #10b981';
@@ -3972,6 +4029,26 @@ function ptShowDetail(orderId) {
   if (!order.pallets) order.pallets = [];
   // Auto-create Pallet 1 for this order if empty
   if (order.pallets.length === 0) order.pallets.push({ items: [] });
+
+  // ── Reconcile: pulled counts must match what's actually on pallets ──
+  // Build pallet totals per part from pallet contents (source of truth)
+  const palletTotals = {};
+  order.pallets.forEach(p => {
+    p.items.forEach(item => {
+      palletTotals[item.partNumber] = (palletTotals[item.partNumber] || 0) + item.qty;
+    });
+  });
+  // Overwrite pulled counts to match pallet reality
+  let reconciled = false;
+  Object.keys(order.pulled).forEach(k => {
+    const onPallets = palletTotals[k] || 0;
+    if (order.pulled[k] !== onPallets) { order.pulled[k] = onPallets; reconciled = true; }
+  });
+  // Also pick up any pallet entries that have no pulled key yet
+  Object.keys(palletTotals).forEach(k => {
+    if (order.pulled[k] !== palletTotals[k]) { order.pulled[k] = palletTotals[k]; reconciled = true; }
+  });
+  if (reconciled) db.savePTSession(pt.orders, []);
 
   const totalQty = order.items.reduce((s,item) => s + item.qty, 0);
   const pulledQty = Object.values(order.pulled).reduce((s,v) => s + v, 0);
