@@ -3528,6 +3528,7 @@ function lmPrintOne(indexOrItem) {
       lm.printed.push(item);
       lm.queue.splice(idx, 1);
       lmRefreshQueue();
+      lmUpdateStats();
       db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
       dashUpdateStats();
       lmReleasePrintLock();
@@ -3553,6 +3554,7 @@ function lmPrintAll() {
       });
       logActivity('check-circle', `Batch printed: ${customerQueue.length} labels for ${lmConsignees[customer].name}`, '#10b981');
       lmRefreshQueue();
+      lmUpdateStats();
       db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
       dashUpdateStats();
       lmReleasePrintLock();
