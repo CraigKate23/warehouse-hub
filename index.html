@@ -3042,15 +3042,18 @@ async function lmLoadFromDB() {
     lm.csvData = row.csv_data;
     // Rebuild Progress Tracker orders for any customer not already in PT
     // (PT loads its own state from DB; only sync customers whose orders are missing)
-    const customers = [...new Set(lm.csvData.map(r => r._customer).filter(Boolean))];
-    const ptCustomers = new Set(Object.values(pt.orders).map(o => o._customer).filter(Boolean));
-    customers.forEach(customer => {
-      if (!ptCustomers.has(customer)) {
-        const rows = lm.csvData.filter(r => r._customer === customer);
-        lmSyncToProgressTracker(rows, customer);
-      }
-    });
-    if (Object.keys(pt.orders).length > 0) db.savePTSession(pt.orders, []);
+    // Skip re-sync if PT was explicitly cleared by the user this session
+    if (!pt._cleared) {
+      const customers = [...new Set(lm.csvData.map(r => r._customer).filter(Boolean))];
+      const ptCustomers = new Set(Object.values(pt.orders).map(o => o._customer).filter(Boolean));
+      customers.forEach(customer => {
+        if (!ptCustomers.has(customer)) {
+          const rows = lm.csvData.filter(r => r._customer === customer);
+          lmSyncToProgressTracker(rows, customer);
+        }
+      });
+      if (Object.keys(pt.orders).length > 0) db.savePTSession(pt.orders, []);
+    }
     // Show UI cards since data is present
     document.getElementById('lm-scan-card').style.display = 'block';
     document.getElementById('lm-queue-card').style.display = 'block';
@@ -3560,7 +3563,7 @@ function lmPrintAll() {
 /* ================================================================
    MODULE: PROGRESS TRACKER
    ================================================================ */
-const pt = { orders: {}, selectedOrder: null, selectedPallet: 0 };
+const pt = { orders: {}, selectedOrder: null, selectedPallet: 0, _cleared: false };
 
 /* Helper: get current order's pallets array (per-order pallets) */
 function ptGetPallets() {
@@ -3632,6 +3635,7 @@ ptDZ.addEventListener('dragleave', () => ptDZ.classList.remove('dragover'));
 ptDZ.addEventListener('drop', e => { e.preventDefault(); ptDZ.classList.remove('dragover'); if (e.dataTransfer.files[0]) ptLoadFile(e.dataTransfer.files[0]); });
 
 function ptLoadCSV(file) {
+  pt._cleared = false;  // new data load — allow Label Maker sync again
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
@@ -3670,6 +3674,7 @@ function ptLoadCSV(file) {
 }
 
 function ptLoadXLSX(file) {
+  pt._cleared = false;  // new data load — allow Label Maker sync again
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
@@ -4204,6 +4209,7 @@ async function ptReset() {
   const ok = await showConfirm('Clear All Data', 'This will remove all orders, scans, and pallets.', 'Clear All', 'btn-danger');
   if (!ok) return;
   pt.orders = {}; pt.selectedOrder = null; pt.selectedPallet = 0;
+  pt._cleared = true;  // prevent Label Maker from re-syncing orders back
   ptUpdatePalletSelects();
   ['pt-orders-card','pt-scan-card','pt-detail-card','pt-live-pallet-card','pt-pallet-mgmt-card'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
   document.getElementById('pt-summary').style.display = 'none';
