@@ -2915,7 +2915,8 @@ function lmScan() {
     lmUpdatePreview(csvRow);
     logActivity('print', `Label queued: ${csvRow.orderNo} (${csvRow.mat})`, '#10b981');
     dashUpdateStats();
-    db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+    lmStateVersion++;  // mark state as changed (protects against stale DB loads)
+    lmSaveToDB();      // debounced — won't race with print callbacks
     if (document.getElementById('lm-autoprint').checked) {
       lmPrintOne(queueItem);  // Pass queue item ref directly — immune to index shifts
     }
@@ -3036,8 +3037,11 @@ function lmReset() {
 }
 
 async function lmLoadFromDB() {
+  const vBefore = lmStateVersion;
   const row = await db.loadLabelMaker();
   if (!row) return;
+  // If user scanned/printed while we were fetching, don't overwrite their work
+  if (lmStateVersion !== vBefore || lmPrintBusy) return;
   if (Array.isArray(row.csv_data) && row.csv_data.length) {
     lm.csvData = row.csv_data;
     // Rebuild Progress Tracker orders for any customer not already in PT
@@ -3305,6 +3309,18 @@ document.getElementById('lm-printer-select').addEventListener('change', () => {
   if (removeBtn) removeBtn.style.display = parseInt(document.getElementById('lm-printer-select').value) > 0 ? 'inline-flex' : 'none';
 });
 
+/* ---- Debounced DB save: prevents rapid async saves from racing ---- */
+let _lmSaveTimer = null;
+function lmSaveToDB() {
+  clearTimeout(_lmSaveTimer);
+  _lmSaveTimer = setTimeout(() => {
+    db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+  }, 400);
+}
+
+/* ---- State version: protects against stale DB loads overwriting in-progress work ---- */
+let lmStateVersion = 0;
+
 /* ---- Print lock: prevents overlapping print jobs ---- */
 let lmPrintBusy = false;
 const lmPrintQueue = [];   // pending { fn } objects waiting for the lock
@@ -3511,6 +3527,19 @@ function lmSendToZebraPrinterLegacy(zpl, htmlFallback, onDone) {
   }
 }
 
+function lmFindInQueue(item) {
+  // Value-based match — survives DB reloads that replace lm.queue with new array/objects
+  let idx = lm.queue.indexOf(item);  // fast path: same reference
+  if (idx === -1) {
+    // Fallback: match by fields (needed after lmLoadFromDB replaces arrays)
+    idx = lm.queue.findIndex(q =>
+      q._customer === item._customer && q.orderNo === item.orderNo &&
+      q.upc === item.upc && q.mat === item.mat && q.packingNo === item.packingNo
+    );
+  }
+  return idx;
+}
+
 function lmPrintOne(indexOrItem) {
   // Accept either a queue index (legacy/button clicks) or direct item reference (auto-print)
   const item = typeof indexOrItem === 'number' ? lm.queue[indexOrItem] : indexOrItem;
@@ -3521,15 +3550,15 @@ function lmPrintOne(indexOrItem) {
   lmAcquirePrintLock(() => {
     lmSendToZebraPrinter(zpl, html, () => {
       // Guard: only move if still in queue (prevents double-splice)
-      const idx = lm.queue.indexOf(item);
+      const idx = lmFindInQueue(item);
       if (idx === -1) { lmReleasePrintLock(); return; }  // already moved by a prior callback
       dashStats.labels++;
       logActivity('check-circle', `Printed: ${item.orderNo} / ${item.mat}`, '#10b981');
-      lm.printed.push(item);
+      lm.printed.push(lm.queue[idx]);
       lm.queue.splice(idx, 1);
       lmRefreshQueue();
       lmUpdateStats();
-      db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+      lmSaveToDB();
       dashUpdateStats();
       lmReleasePrintLock();
     });
@@ -3546,16 +3575,16 @@ function lmPrintAll() {
     lmSendToZebraPrinter(allZpl, allHtml, () => {
       // Move printed items from queue to printed — with guard against double-move
       customerQueue.forEach(item => {
-        const idx = lm.queue.indexOf(item);
+        const idx = lmFindInQueue(item);
         if (idx === -1) return;  // already moved
         dashStats.labels++;
-        lm.printed.push(item);
+        lm.printed.push(lm.queue[idx]);
         lm.queue.splice(idx, 1);
       });
       logActivity('check-circle', `Batch printed: ${customerQueue.length} labels for ${lmConsignees[customer].name}`, '#10b981');
       lmRefreshQueue();
       lmUpdateStats();
-      db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+      lmSaveToDB();
       dashUpdateStats();
       lmReleasePrintLock();
     });
