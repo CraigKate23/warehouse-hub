@@ -1179,7 +1179,12 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
       db.subscribePickList('oreillyPicker',   () => orpkPicker.loadFromDB());
       db.subscribePickList('dsdTracker',      () => { dsdPicker.loadFromDB(); setTimeout(dsdLmRefresh, 300); });
       db.subscribePTSession(                  () => ptLoadFromDB());
-      db.subscribeLabelMaker(                 () => lmLoadFromDB());
+      db.subscribeLabelMaker(                 () => {
+        // Skip realtime reload if actively scanning/printing — our own saves trigger this
+        // and reloading mid-work overwrites in-memory state that's ahead of the DB
+        if (lmPrintBusy || lm.queue.length > 0 || _lmSaveTimer) return;
+        lmLoadFromDB();
+      });
     }
   });
 
@@ -2679,6 +2684,7 @@ function lmApplyParsedData(rows, sourceDesc) {
   showMsg('lm-csv-status', `${sourceDesc}: ${rows.length} items added (${lm.csvData.filter(r => r._customer === customer).length} total for ${lmConsignees[customer].name}).`, 'success');
   lmUpdateStats();
   document.getElementById('lm-scan').focus();
+  lmStateVersion++;  // protect against realtime reload overwriting scans that start immediately
   db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
 }
 
@@ -3243,6 +3249,7 @@ let _lmSaveTimer = null;
 function lmSaveToDB() {
   clearTimeout(_lmSaveTimer);
   _lmSaveTimer = setTimeout(() => {
+    _lmSaveTimer = null;  // clear before save so realtime guard knows no save is pending
     db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
   }, 400);
 }
