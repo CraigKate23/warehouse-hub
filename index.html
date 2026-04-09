@@ -3391,6 +3391,9 @@ function lmSendToZebraPrinter(zpl, htmlFallback, onDone) {
         showMsg('lm-scan-status', 'USB send failed — falling back to browser print dialog.', 'error');
         lmDoBrowserPrint(htmlFallback, onDone);
       }
+    }).catch(() => {
+      // Safety net: if promise rejects unexpectedly, still fire callback so lock releases
+      if (onDone) onDone();
     });
     return;
   }
@@ -3420,13 +3423,16 @@ function lmPrintOne(indexOrItem) {
   const html = lmBuildLabelHTML(item);
   lmAcquirePrintLock(() => {
     lmSendToZebraPrinter(zpl, html, () => {
-      // Guard: only move if still in queue (prevents double-splice)
       const idx = lmFindInQueue(item);
-      if (idx === -1) { lmReleasePrintLock(); return; }  // already moved by a prior callback
+      if (idx !== -1) {
+        lm.printed.push(lm.queue[idx]);
+        lm.queue.splice(idx, 1);
+      } else {
+        // Item not in queue (DB reload or race) — label already printed physically, still count it
+        lm.printed.push(item);
+      }
       dashStats.labels++;
       logActivity('check-circle', `Printed: ${item.orderNo} / ${item.mat}`, '#10b981');
-      lm.printed.push(lm.queue[idx]);
-      lm.queue.splice(idx, 1);
       lmRefreshQueue();
       lmUpdateStats();
       lmSaveToDB();
@@ -3444,13 +3450,17 @@ function lmPrintAll() {
   const allHtml = customerQueue.map(item => lmBuildLabelHTML(item)).join('');
   lmAcquirePrintLock(() => {
     lmSendToZebraPrinter(allZpl, allHtml, () => {
-      // Move printed items from queue to printed — with guard against double-move
+      // Move printed items from queue to printed
       customerQueue.forEach(item => {
         const idx = lmFindInQueue(item);
-        if (idx === -1) return;  // already moved
+        if (idx !== -1) {
+          lm.printed.push(lm.queue[idx]);
+          lm.queue.splice(idx, 1);
+        } else {
+          // Item not in queue (DB reload or race) — label already printed, still count it
+          lm.printed.push(item);
+        }
         dashStats.labels++;
-        lm.printed.push(lm.queue[idx]);
-        lm.queue.splice(idx, 1);
       });
       logActivity('check-circle', `Batch printed: ${customerQueue.length} labels for ${lmConsignees[customer].name}`, '#10b981');
       lmRefreshQueue();
