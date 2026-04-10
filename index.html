@@ -1178,7 +1178,13 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
       db.subscribePickList('orderPicker',     () => opPicker.loadFromDB());
       db.subscribePickList('oreillyPicker',   () => orpkPicker.loadFromDB());
       db.subscribePickList('dsdTracker',      () => { dsdPicker.loadFromDB(); setTimeout(dsdLmRefresh, 300); });
-      db.subscribePTSession(                  () => ptLoadFromDB());
+      db.subscribePTSession(() => {
+        // Skip realtime reload if we're actively scanning. Our own saves
+        // fire this callback, and reloading mid-scan overwrites in-memory
+        // state that's ahead of the DB. ptLoadFromDB has its own guard too.
+        if (_ptSaveTimer) return;
+        ptLoadFromDB();
+      });
       db.subscribeLabelMaker(                 () => {
         // Skip realtime reload if actively scanning/printing — our own saves trigger this
         // and reloading mid-work overwrites in-memory state that's ahead of the DB
@@ -3484,6 +3490,20 @@ function lmPrintAll() {
    ================================================================ */
 const pt = { orders: {}, selectedOrder: null, selectedPallet: 0, _cleared: false };
 
+// Debounced save + state version guard. Protects against a race where
+// our own savePTSession triggers the realtime subscription, which reloads
+// the DB and overwrites in-memory state that's ahead of what just landed
+// on the server. Without this, rapid scans get silently dropped.
+let _ptSaveTimer = null;
+let ptStateVersion = 0;
+function ptSaveToDB() {
+  clearTimeout(_ptSaveTimer);
+  _ptSaveTimer = setTimeout(() => {
+    _ptSaveTimer = null;
+    db.savePTSession(pt.orders, []);
+  }, 400);
+}
+
 /* Helper: get current order's pallets array (per-order pallets) */
 function ptGetPallets() {
   if (!pt.selectedOrder || !pt.orders[pt.selectedOrder]) return [];
@@ -3888,6 +3908,7 @@ function ptScan() {
   }
   // NOW increment pulled — guaranteed to be backed by a pallet entry
   order.pulled[item.partNumber] = (order.pulled[item.partNumber] || 0) + 1;
+  ptStateVersion++;
   const pulled = order.pulled[item.partNumber];
   const remaining = item.qty - pulled;
   const palletMsg = ` &nbsp;<span style="background:#eef2ff;color:#6366f1;padding:1px 8px;border-radius:10px;font-size:11px">Pallet ${palletIdx + 1}</span>`;
@@ -3916,7 +3937,7 @@ function ptScan() {
     }
     ptRenderOrders();
     ptRefreshLivePallet();
-    db.savePTSession(pt.orders, []);
+    ptSaveToDB();
   });
 }
 
@@ -4137,8 +4158,16 @@ async function ptReset() {
 }
 
 async function ptLoadFromDB() {
+  // Skip reload if we're mid-scan: a debounced save is queued or the user
+  // just bumped the state version. Reloading now would overwrite in-memory
+  // state that's ahead of the DB.
+  if (_ptSaveTimer) return;
+  const vBefore = ptStateVersion;
   const row = await db.loadPTSession();
   if (!row) return;
+  // If a scan landed while we were awaiting the load, bail out — the
+  // in-memory state is newer than what we just pulled.
+  if (ptStateVersion !== vBefore || _ptSaveTimer) return;
   if (row.orders && Object.keys(row.orders).length > 0) {
     pt.orders = row.orders;
 
