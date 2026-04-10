@@ -909,6 +909,39 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
     <div id="pt-scan-last" style="display:none;margin-top:10px;padding:10px 14px;background:#f8fafc;border-radius:9px;font-size:13px;color:#475569;border:1px solid #e2e8f0"></div>
   </div>
 
+  <!-- Pallet Management (only visible inside order detail, collapsible) -->
+  <div class="card" id="pt-pallet-mgmt-card" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="ptTogglePallets()">
+      <div class="card-title" style="margin:0"><i class="fas fa-pallet"></i> Pallet Management</div>
+      <i class="fas fa-chevron-down" id="pt-pallet-chevron" style="color:#94a3b8;transition:transform .2s"></i>
+    </div>
+    <div id="pt-pallet-body" style="display:none;margin-top:16px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <button class="btn btn-success btn-sm" onclick="ptAddPallet()"><i class="fas fa-plus"></i> New Pallet</button>
+        <button class="btn btn-ghost btn-sm" onclick="ptClearPallets()"><i class="fas fa-trash"></i> Clear All</button>
+      </div>
+      <div class="form-row" style="margin-bottom:14px">
+        <div class="form-group">
+          <label>Select Pallet</label>
+          <select id="pt-pallet-select" onchange="ptShowPallet()"></select>
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>Part Number</label>
+          <input type="text" id="pt-pallet-part" placeholder="Enter part number">
+        </div>
+        <div class="form-group" style="width:80px">
+          <label>Qty</label>
+          <input type="number" id="pt-pallet-qty" value="1" min="1">
+        </div>
+        <button class="btn btn-primary" onclick="ptAddPartToPallet()" style="align-self:flex-end"><i class="fas fa-plus"></i> Add</button>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>Part #</th><th>Name</th><th>Qty</th><th>Actions</th></tr></thead>
+        <tbody id="pt-pallet-table"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- Order detail view -->
   <div class="card" id="pt-detail-card" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -972,39 +1005,6 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
     <div id="pt-live-pallet-empty" style="text-align:center;padding:20px;color:#94a3b8;font-size:13px">
       <i class="fas fa-barcode" style="font-size:20px;display:block;margin-bottom:6px"></i>
       Scan items to add them to this pallet
-    </div>
-  </div>
-
-  <!-- Pallet Management (only visible inside order detail, collapsible) -->
-  <div class="card" id="pt-pallet-mgmt-card" style="display:none">
-    <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="ptTogglePallets()">
-      <div class="card-title" style="margin:0"><i class="fas fa-pallet"></i> Pallet Management</div>
-      <i class="fas fa-chevron-down" id="pt-pallet-chevron" style="color:#94a3b8;transition:transform .2s"></i>
-    </div>
-    <div id="pt-pallet-body" style="display:none;margin-top:16px">
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
-        <button class="btn btn-success btn-sm" onclick="ptAddPallet()"><i class="fas fa-plus"></i> New Pallet</button>
-        <button class="btn btn-ghost btn-sm" onclick="ptClearPallets()"><i class="fas fa-trash"></i> Clear All</button>
-      </div>
-      <div class="form-row" style="margin-bottom:14px">
-        <div class="form-group">
-          <label>Select Pallet</label>
-          <select id="pt-pallet-select" onchange="ptShowPallet()"></select>
-        </div>
-        <div class="form-group" style="flex:1">
-          <label>Part Number</label>
-          <input type="text" id="pt-pallet-part" placeholder="Enter part number">
-        </div>
-        <div class="form-group" style="width:80px">
-          <label>Qty</label>
-          <input type="number" id="pt-pallet-qty" value="1" min="1">
-        </div>
-        <button class="btn btn-primary" onclick="ptAddPartToPallet()" style="align-self:flex-end"><i class="fas fa-plus"></i> Add</button>
-      </div>
-      <table class="data-table">
-        <thead><tr><th>Part #</th><th>Name</th><th>Qty</th><th>Actions</th></tr></thead>
-        <tbody id="pt-pallet-table"></tbody>
-      </table>
     </div>
   </div>
 
