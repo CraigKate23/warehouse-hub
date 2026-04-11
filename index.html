@@ -3925,10 +3925,17 @@ function ptScan() {
 
   dashStats.picks++;
 
+  // Schedule the debounced save SYNCHRONOUSLY so _ptSaveTimer is set
+  // before control returns to the event loop. If we waited for the rAF,
+  // a realtime callback or in-flight ptLoadFromDB could resolve in the
+  // gap (sub-16ms on a fast LAN) and reassign pt.orders, orphaning this
+  // scan's mutation on the old reference.
+  ptSaveToDB();
+
   // Refocus input IMMEDIATELY so the next barcode scan isn't lost
   input.focus();
 
-  // Defer all heavy DOM updates so the input stays responsive during fast scanning
+  // Defer heavy DOM updates so the input stays responsive during fast scanning
   if (ptScan._renderTimer) cancelAnimationFrame(ptScan._renderTimer);
   ptScan._renderTimer = requestAnimationFrame(() => {
     logActivity('chart-pie', `PT pulled: ${raw} → ${order.id} (${pulled}/${item.qty})`, '#10b981');
@@ -3937,7 +3944,6 @@ function ptScan() {
     }
     ptRenderOrders();
     ptRefreshLivePallet();
-    ptSaveToDB();
   });
 }
 
