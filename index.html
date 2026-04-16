@@ -2864,22 +2864,60 @@ function lmScan() {
     document.getElementById('lm-last-scan').style.display = 'none';
     if (typeof ptPlaySound === 'function') ptPlaySound('notneeded');
   } else {
-    // Count how many times this code is already queued or printed for this customer
-    const alreadyScanned = [...lm.queue, ...lm.printed].filter(r =>
+    // Per-order demand assignment.
+    // O'Reilly groups orders by DC; AutoZone & A&I group by Order No.
+    // We must give each scan to a specific order whose demand for this code
+    // hasn't been fully met yet — otherwise rows for one DC swallow scans
+    // belonging to another DC and that DC ends up with extra labels.
+    const orderField = customer === 'oreilly' ? 'dc' : 'orderNo';
+    const orderKey = (r) => String(r[orderField] || r.orderNo || 'Unknown').toUpperCase();
+
+    // demand[orderId] = how many CSV rows that order has for this code
+    const demand = {};
+    matches.forEach(r => {
+      const k = orderKey(r);
+      demand[k] = (demand[k] || 0) + 1;
+    });
+
+    // scannedPerOrder[orderId] = how many already queued/printed for that order+code
+    const scannedPerOrder = {};
+    [...lm.queue, ...lm.printed].filter(r =>
       r._customer === customer && String(r[field] || '').toUpperCase() === code.toUpperCase()
-    ).length;
-    if (alreadyScanned >= matches.length) {
+    ).forEach(r => {
+      const k = orderKey(r);
+      scannedPerOrder[k] = (scannedPerOrder[k] || 0) + 1;
+    });
+
+    // Walk CSV-order matches and pick the first row whose order still needs it.
+    // Track per-row consumption so duplicate CSV rows in the same order don't
+    // get re-issued past their order's demand.
+    const usedRowIdx = new Set();
+    let csvRow = null;
+    const matchedRowsInOrder = matches.map((r, i) => ({ r, i, k: orderKey(r) }));
+    for (const { r, i, k } of matchedRowsInOrder) {
+      if ((scannedPerOrder[k] || 0) < (demand[k] || 0) && !usedRowIdx.has(i)) {
+        csvRow = r;
+        scannedPerOrder[k] = (scannedPerOrder[k] || 0) + 1;
+        usedRowIdx.add(i);
+        break;
+      }
+    }
+
+    if (!csvRow) {
+      // Every order's demand for this code is satisfied
       showMsg('lm-scan-status', `Already scanned all ${matches.length} label(s) for ${field.toUpperCase()} ${code} — no more needed.`, 'error');
       if (typeof ptPlaySound === 'function') ptPlaySound('notneeded');
       input.value = '';
       input.focus();
       return;
     }
-    const csvRow = matches[alreadyScanned];  // Pick the next unscanned CSV row
+
     const queueItem = { ...csvRow, _customer: customer };
     lm.queue.push(queueItem);
-    const remaining = matches.length - alreadyScanned - 1;
-    showMsg('lm-scan-status', `Added to queue: ${field.toUpperCase()} ${code} (${remaining} more needed) - Keep scanning!`, 'success');
+    const totalRemaining = Object.keys(demand).reduce(
+      (s, k) => s + Math.max(0, (demand[k] || 0) - (scannedPerOrder[k] || 0)), 0
+    );
+    showMsg('lm-scan-status', `Added to queue: ${field.toUpperCase()} ${code} → ${orderKey(csvRow)} (${totalRemaining} more needed across all orders)`, 'success');
     if (typeof ptPlaySound === 'function') ptPlaySound('success');
     document.getElementById('lm-last-scan').style.display = 'block';
     document.getElementById('lm-last-detail').textContent = `${field.toUpperCase()}: ${csvRow[field]} | Order: ${csvRow.orderNo} | Mat: ${csvRow.mat} | Qty: ${csvRow.qty}`;
