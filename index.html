@@ -863,15 +863,6 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
     <div><div class="module-title">Progress Tracker</div><div class="module-sub">Track order fulfillment progress and manage pallets</div></div>
     <button class="btn btn-danger" style="margin-left:auto" onclick="ptReset()"><i class="fas fa-trash"></i> Clear All Data</button>
   </div>
-  <div class="card">
-    <div class="drop-zone" id="pt-dropzone" onclick="document.getElementById('pt-file').click()">
-      <p><i class="fas fa-cloud-upload-alt"></i> Drag & drop CSV / Excel or click to select</p>
-      <p style="font-size:12px;margin-top:4px">Format: Order#, Part#, Name, Qty</p>
-      <input type="file" id="pt-file" accept=".csv,.xlsx,.xls">
-    </div>
-    <div id="pt-csv-status" class="status-msg" style="display:none"></div>
-  </div>
-
   <!-- Orders list view -->
   <div id="pt-orders-card" style="display:none">
     <!-- Summary bar -->
@@ -3597,187 +3588,9 @@ function ptPlaySound(type) {
   }
 }
 
-// File handling
-function ptLoadFile(file) {
-  if (!file) return;
-  const ext = file.name.split('.').pop().toLowerCase();
-  if (ext === 'csv') { ptLoadCSV(file); }
-  else if (ext === 'xlsx' || ext === 'xls') { ptLoadXLSX(file); }
-  else { showMsg('pt-csv-status', 'Unsupported file type. Use .csv or .xlsx', 'error'); }
-}
-document.getElementById('pt-file').addEventListener('change', e => { if (e.target.files[0]) ptLoadFile(e.target.files[0]); });
-const ptDZ = document.getElementById('pt-dropzone');
-ptDZ.addEventListener('dragover', e => { e.preventDefault(); ptDZ.classList.add('dragover'); });
-ptDZ.addEventListener('dragleave', () => ptDZ.classList.remove('dragover'));
-ptDZ.addEventListener('drop', e => { e.preventDefault(); ptDZ.classList.remove('dragover'); if (e.dataTransfer.files[0]) ptLoadFile(e.dataTransfer.files[0]); });
+// PT file upload removed — all input goes through Label Maker which syncs to PT.
 
-function ptLoadCSV(file) {
-  pt._cleared = false;  // new data load — allow Label Maker sync again
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const lines = e.target.result.split('\n').filter(l => l.trim());
-      if (lines.length < 2) throw new Error('Empty CSV.');
-      // Format: Order#, Part#, Name, Qty
-      pt.orders = {};
-      for (let i = 1; i < lines.length; i++) {
-        const vals = parseCSVLine(lines[i]);
-        if (vals.length < 4) continue;
-        const orderId = vals[0].trim();
-        const partNumber = vals[1].trim();
-        const name = vals[2].trim();
-        const qty = parseInt(vals[3]) || 0;
-        if (!orderId || !partNumber || qty <= 0) continue;
-        if (!pt.orders[orderId]) pt.orders[orderId] = { id: orderId, items: [], pulled: {}, pallets: [] };
-        // Consolidate: if part already exists in this order, add to its qty
-        const existing = pt.orders[orderId].items.find(i => i.partNumber === partNumber);
-        if (existing) {
-          existing.qty += qty;
-        } else {
-          pt.orders[orderId].items.push({ partNumber, name, qty });
-          if (!pt.orders[orderId].pulled[partNumber]) pt.orders[orderId].pulled[partNumber] = 0;
-        }
-      }
-      const orderCount = Object.keys(pt.orders).length;
-      const itemCount = Object.values(pt.orders).reduce((s,o) => s + o.items.length, 0);
-      if (!orderCount) throw new Error('No valid orders found.');
-      showMsg('pt-csv-status', `Loaded ${orderCount} orders with ${itemCount} items.`, 'success');
-      document.getElementById('pt-orders-card').style.display = 'block';
-      ptRenderOrders();
-      db.savePTSession(pt.orders, []);
-    } catch(err) { showMsg('pt-csv-status', err.message, 'error'); }
-  };
-  reader.readAsText(file);
-}
-
-function ptLoadXLSX(file) {
-  pt._cleared = false;  // new data load — allow Label Maker sync again
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const wb = XLSX.read(e.target.result, { type: 'array', raw: false });
-      if (!wb.SheetNames.length) throw new Error('No sheets found in workbook.');
-      pt.orders = {};
-
-      // Column-matching helpers (broadened for real-world files)
-      const isOrderCol = c => /order(?!\s*type)|po[#\s]|po$/i.test(c);
-      const isPartCol  = c => /part|mat($|[^c])|material|sku|item/i.test(c);
-      const isQtyCol   = c => /qty|quantity|ship\s*qty/i.test(c);
-      const isBoxCol   = c => /no\.?\s*of\s*box|num.*box|boxes|cartons/i.test(c);
-      const isNameCol  = c => /name|desc|material/i.test(c);
-
-      function findHeader(rows) {
-        for (let r = 0; r < Math.min(rows.length, 6); r++) {
-          const cells = rows[r].map(c => String(c).toLowerCase().trim());
-
-          // Special case: O'Reilly Barcodes sheet (UPC + DC + Mat columns present)
-          // Order Detail = DC, Part # = UPC (scanned barcode), Name = Mat
-          const upcIdx = cells.indexOf('upc');
-          const dcIdx  = cells.indexOf('dc');
-          const matIdx = cells.indexOf('mat');
-          const bQtyIdx = cells.findIndex(isQtyCol);
-          if (upcIdx !== -1 && dcIdx !== -1 && matIdx !== -1 && bQtyIdx !== -1) {
-            const remarksIdx = cells.findIndex(c => /remark/i.test(c));
-            return { headerIdx: r, order: dcIdx, part: upcIdx, name: matIdx, qty: bQtyIdx, boxes: -1, isBarcodes: true, remarks: remarksIdx };
-          }
-
-          const oIdx = cells.findIndex(isOrderCol);
-          const pIdx = cells.findIndex(isPartCol);
-          const qIdx = cells.findIndex(isQtyCol);
-          if (pIdx !== -1 && qIdx !== -1) {
-            const bIdx = cells.findIndex(isBoxCol);  // "No. of Boxes" column
-            const nIdx = cells.findIndex(c => isNameCol(c) && cells.indexOf(c) !== pIdx);
-            return { headerIdx: r, order: oIdx, part: pIdx, name: nIdx !== -1 ? nIdx : -1, qty: qIdx, boxes: bIdx };
-          }
-        }
-        return null;
-      }
-
-      // If the workbook has Barcodes sheets, only process those (skip Packing List sheets)
-      const hasBarcodeSheets = wb.SheetNames.some(s => /^barcode/i.test(s.trim()));
-
-      // Two-pass consolidation:
-      // Pass 1: Sum quantities within each sheet (handles per-box rows like barcodes)
-      // Pass 2: Take MAX across sheets (prevents double-counting from summary sheets)
-      const globalMap = {};  // key: "orderId|partNumber" → { orderId, partNumber, name, qty }
-
-      for (const sheetName of wb.SheetNames) {
-        // When Barcodes sheets exist, skip non-Barcodes sheets entirely
-        if (hasBarcodeSheets && !/^barcode/i.test(sheetName.trim())) continue;
-
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '', raw: false });
-        if (rows.length < 2) continue;
-
-        const colMap = findHeader(rows);
-        if (!colMap) continue;
-
-        // Check if this is a "one order per sheet" format (order # in row 1 or sheet name)
-        let sheetOrderId = null;
-        if (colMap.order === -1) {
-          const r0 = rows[0];
-          if (r0 && /^order$/i.test(String(r0[0] || '').trim()) && r0[1]) {
-            sheetOrderId = String(r0[1]).trim();
-          } else {
-            sheetOrderId = sheetName;
-          }
-        }
-
-        // Pass 1: Sum boxes within this sheet
-        // If "No. of Boxes" column exists, use it; otherwise each row = 1 box
-        const hasBoxCol = colMap.boxes !== -1;
-        const sheetMap = {};
-        for (let i = colMap.headerIdx + 1; i < rows.length; i++) {
-          const row = rows[i];
-          let orderId = sheetOrderId || String(row[colMap.order] || '').trim();
-          // Barcodes fallback: MasterPro DC column contains XLOOKUP formulas that don't
-          // evaluate in the browser — extract DC from the Remarks column instead
-          if (colMap.isBarcodes && (!orderId || orderId.startsWith('='))) {
-            const remarksVal = colMap.remarks !== -1 ? String(row[colMap.remarks] || '').trim() : '';
-            const dcMatch = remarksVal.match(/DC#\d+\s+[A-Z]+/i);
-            orderId = dcMatch ? dcMatch[0] : '';
-          }
-          const partNumber = String(row[colMap.part] || '').trim();
-          const name = colMap.name !== -1 ? String(row[colMap.name] || '').trim() : '';
-          const checkQty = parseInt(row[colMap.qty]) || 0;
-          if (!orderId || !partNumber || checkQty <= 0) continue;
-          // Box count: use box column if available, otherwise 1 box per row
-          const boxes = hasBoxCol ? (parseInt(row[colMap.boxes]) || 1) : 1;
-
-          const key = `${orderId}|${partNumber}`;
-          if (!sheetMap[key]) sheetMap[key] = { orderId, partNumber, name, qty: 0 };
-          sheetMap[key].qty += boxes;
-          if (name && !sheetMap[key].name) sheetMap[key].name = name;
-        }
-
-        // Pass 2: Merge into global — take MAX qty per order+part across sheets
-        for (const [key, item] of Object.entries(sheetMap)) {
-          if (!globalMap[key]) {
-            globalMap[key] = { ...item };
-          } else {
-            globalMap[key].qty = Math.max(globalMap[key].qty, item.qty);
-            if (item.name && !globalMap[key].name) globalMap[key].name = item.name;
-          }
-        }
-      }
-
-      // Build pt.orders from consolidated global map
-      for (const item of Object.values(globalMap)) {
-        if (!pt.orders[item.orderId]) pt.orders[item.orderId] = { id: item.orderId, items: [], pulled: {}, pallets: [] };
-        pt.orders[item.orderId].items.push({ partNumber: item.partNumber, name: item.name, qty: item.qty });
-        if (!pt.orders[item.orderId].pulled[item.partNumber]) pt.orders[item.orderId].pulled[item.partNumber] = 0;
-      }
-
-      const orderCount = Object.keys(pt.orders).length;
-      const itemCount = Object.values(pt.orders).reduce((s,o) => s + o.items.length, 0);
-      if (!orderCount) throw new Error('No valid orders found. Check that file has columns for Part/Material and Qty.');
-      showMsg('pt-csv-status', `Excel loaded — ${orderCount} orders with ${itemCount} items.`, 'success');
-      document.getElementById('pt-orders-card').style.display = 'block';
-      ptRenderOrders();
-      db.savePTSession(pt.orders, []);
-    } catch(err) { showMsg('pt-csv-status', err.message, 'error'); }
-  };
-  reader.readAsArrayBuffer(file);
-}
+// ptLoadCSV and ptLoadXLSX removed — all file input goes through Label Maker.
 
 const ptCustomerTheme = {
   oreilly:  { bg: '#f0fdf4', accent: '#16a34a', label: "O'Reilly" },
@@ -4208,7 +4021,6 @@ async function ptReset() {
   ptUpdatePalletSelects();
   ['pt-orders-card','pt-scan-card','pt-detail-card','pt-live-pallet-card','pt-pallet-mgmt-card'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
   document.getElementById('pt-summary').style.display = 'none';
-  hideMsg('pt-csv-status');
   db.savePTSession({}, []);
 }
 
