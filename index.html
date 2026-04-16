@@ -3981,6 +3981,17 @@ function ptShowDetail(orderId) {
   // Auto-create Pallet 1 for this order if empty
   if (order.pallets.length === 0) order.pallets.push({ items: [] });
 
+  // ── Reset pallet selection to Pallet 1 for this order ──
+  // Each order's pallet numbering is independent — opening an order
+  // should always land on its own Pallet 1, not carry the index over
+  // from whatever order was previously open.
+  pt.selectedPallet = 0;
+  const _detailSel = document.getElementById('pt-pallet-select');
+  const _scanSel   = document.getElementById('pt-active-pallet');
+  if (_detailSel) _detailSel.value = '0';
+  if (_scanSel)   _scanSel.value   = '0';
+  ptUpdatePalletSelects();
+
   // ── Reconcile: pulled counts must match what's actually on pallets ──
   // Build pallet totals per part from pallet contents (source of truth)
   const palletTotals = {};
