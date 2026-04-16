@@ -4130,7 +4130,7 @@ function ptUpdatePalletSelects() {
   if (pallets.length === 0 && pt.selectedOrder && pt.orders[pt.selectedOrder]) {
     pallets.push({ items: [] });
   }
-  const palletOpts = pallets.map((p,i) => `<option value="${i}">Pallet ${i+1} (${p.items.length} item${p.items.length!==1?'s':''})</option>`).join('');
+  const palletOpts = pallets.map((p,i) => { const boxes = p.items.reduce((s,item) => s + item.qty, 0); return `<option value="${i}">Pallet ${i+1} (${boxes} box${boxes!==1?'es':''})</option>`; }).join('');
   const detailSel = document.getElementById('pt-pallet-select');
   const scanSel   = document.getElementById('pt-active-pallet');
   // Preserve selected values before rebuilding
