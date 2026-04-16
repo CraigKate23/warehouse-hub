@@ -3824,6 +3824,7 @@ function ptNewPalletAndSelect() {
 }
 
 function ptShowDetail(orderId) {
+  const orderChanged = pt.selectedOrder !== orderId;
   pt.selectedOrder = orderId;
   const order = pt.orders[orderId];
   if (!order) return;
@@ -3832,15 +3833,17 @@ function ptShowDetail(orderId) {
   // Auto-create Pallet 1 for this order if empty
   if (order.pallets.length === 0) order.pallets.push({ items: [] });
 
-  // ── Reset pallet selection to Pallet 1 for this order ──
-  // Each order's pallet numbering is independent — opening an order
-  // should always land on its own Pallet 1, not carry the index over
-  // from whatever order was previously open.
-  pt.selectedPallet = 0;
-  const _detailSel = document.getElementById('pt-pallet-select');
-  const _scanSel   = document.getElementById('pt-active-pallet');
-  if (_detailSel) _detailSel.value = '0';
-  if (_scanSel)   _scanSel.value   = '0';
+  // ── Reset pallet selection to Pallet 1 only when switching orders ──
+  // Each order's pallet numbering is independent — opening a NEW order
+  // should land on its own Pallet 1. But refreshing the SAME order
+  // (e.g. after a scan) must preserve whichever pallet the user selected.
+  if (orderChanged) {
+    pt.selectedPallet = 0;
+    const _detailSel = document.getElementById('pt-pallet-select');
+    const _scanSel   = document.getElementById('pt-active-pallet');
+    if (_detailSel) _detailSel.value = '0';
+    if (_scanSel)   _scanSel.value   = '0';
+  }
   ptUpdatePalletSelects();
 
   // ── Reconcile: pulled counts must match what's actually on pallets ──
