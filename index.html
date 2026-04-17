@@ -2618,8 +2618,9 @@ function lmSyncToProgressTracker(rows, customer) {
   const grouped = {};
   rows.forEach(row => {
     const orderId = (customer === 'oreilly' && row.dc) ? row.dc : (row.orderNo || 'Unknown');
-    const partNumber = row.upc;
-    const name = row.mat;
+    // AutoZone scans by MAT barcode; O'Reilly & A&I scan by UPC
+    const partNumber = customer === 'autozone' ? row.mat : row.upc;
+    const name = customer === 'autozone' ? row.upc : row.mat;
     if (!orderId || !partNumber) return;
     if (!grouped[orderId]) grouped[orderId] = {};
     if (!grouped[orderId][partNumber]) grouped[orderId][partNumber] = { name, count: 0 };
