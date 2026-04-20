@@ -1170,10 +1170,14 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
       db.subscribePickList('oreillyPicker',   () => orpkPicker.loadFromDB());
       db.subscribePickList('dsdTracker',      () => { dsdPicker.loadFromDB(); setTimeout(dsdLmRefresh, 300); });
       db.subscribePTSession(() => {
-        // Skip realtime reload if we're actively scanning. Our own saves
-        // fire this callback, and reloading mid-scan overwrites in-memory
-        // state that's ahead of the DB. ptLoadFromDB has its own guard too.
-        if (_ptSaveTimer) return;
+        // Skip realtime reload if we're actively scanning OR a save is
+        // still in-flight.  Our own saves fire this callback, and
+        // reloading mid-scan overwrites in-memory state that's ahead of
+        // the DB.  _ptSaveInFlight covers the gap between the debounce
+        // firing and the HTTP write completing — without it, a realtime
+        // event from a *previous* save can load stale data and revert
+        // the most recent scan.  ptLoadFromDB has its own guard too.
+        if (_ptSaveTimer || _ptSaveInFlight) return;
         ptLoadFromDB();
       });
       db.subscribeLabelMaker(                 () => {
@@ -3052,13 +3056,19 @@ async function lmLoadFromDB() {
     if (!pt._cleared) {
       const customers = [...new Set(lm.csvData.map(r => r._customer).filter(Boolean))];
       const ptCustomers = new Set(Object.values(pt.orders).map(o => o._customer).filter(Boolean));
+      let ptChanged = false;
       customers.forEach(customer => {
         if (!ptCustomers.has(customer)) {
           const rows = lm.csvData.filter(r => r._customer === customer);
           lmSyncToProgressTracker(rows, customer);
+          ptChanged = true;
         }
       });
-      if (Object.keys(pt.orders).length > 0) db.savePTSession(pt.orders, []);
+      // Only save PT if we actually added new customer orders.  Saving
+      // unconditionally was dangerous: if pt.orders held stale data
+      // (from a concurrent realtime reload) the save would persist it,
+      // permanently losing scans.
+      if (ptChanged && Object.keys(pt.orders).length > 0) db.savePTSession(pt.orders, []);
     }
     // Show UI cards since data is present
     document.getElementById('lm-scan-card').style.display = 'block';
@@ -3524,13 +3534,25 @@ const pt = { orders: {}, selectedOrder: null, selectedPallet: 0, _cleared: false
 // our own savePTSession triggers the realtime subscription, which reloads
 // the DB and overwrites in-memory state that's ahead of what just landed
 // on the server. Without this, rapid scans get silently dropped.
+//
+// _ptSaveInFlight stays true from when the HTTP save starts until it
+// completes.  This closes the gap where _ptSaveTimer was already null
+// (debounce fired) but the write hadn't reached the DB yet — a realtime
+// event from a *previous* save could sneak through that window, load
+// stale data, and silently revert the most recent scan.
 let _ptSaveTimer = null;
+let _ptSaveInFlight = false;
 let ptStateVersion = 0;
 function ptSaveToDB() {
   clearTimeout(_ptSaveTimer);
-  _ptSaveTimer = setTimeout(() => {
+  _ptSaveTimer = setTimeout(async () => {
     _ptSaveTimer = null;
-    db.savePTSession(pt.orders, []);
+    _ptSaveInFlight = true;
+    try {
+      await db.savePTSession(pt.orders, []);
+    } finally {
+      _ptSaveInFlight = false;
+    }
   }, 400);
 }
 
@@ -3751,12 +3773,16 @@ function ptScan() {
   // Clamp to valid range (fallback to first pallet)
   if (isNaN(palletIdx) || !orderPallets[palletIdx]) palletIdx = 0;
 
-  // Add to pallet FIRST — pulled count only increments when item is on a pallet
-  const existingEntry = orderPallets[palletIdx].items.find(e => e.partNumber === raw && e.orderId === order.id);
+  // Add to pallet FIRST — pulled count only increments when item is on a pallet.
+  // Use item.partNumber (the order's canonical key) for the pallet entry — NOT
+  // raw (the uppercased scanner input).  Using raw created a case mismatch:
+  // pulled was keyed by item.partNumber but pallet entries used raw, so the
+  // reconciliation in ptShowDetail saw mismatched keys and reset pulled to 0.
+  const existingEntry = orderPallets[palletIdx].items.find(e => e.partNumber === item.partNumber && e.orderId === order.id);
   if (existingEntry) {
     existingEntry.qty++;
   } else {
-    orderPallets[palletIdx].items.push({ partNumber: raw, name: item.name, qty: 1, orderId: order.id });
+    orderPallets[palletIdx].items.push({ partNumber: item.partNumber, name: item.name, qty: 1, orderId: order.id });
   }
   // NOW increment pulled — guaranteed to be backed by a pallet entry
   order.pulled[item.partNumber] = (order.pulled[item.partNumber] || 0) + 1;
@@ -4029,16 +4055,16 @@ async function ptReset() {
 }
 
 async function ptLoadFromDB() {
-  // Skip reload if we're mid-scan: a debounced save is queued or the user
-  // just bumped the state version. Reloading now would overwrite in-memory
-  // state that's ahead of the DB.
-  if (_ptSaveTimer) return;
+  // Skip reload if we're mid-scan: a debounced save is queued, a save is
+  // in-flight, or the user just bumped the state version.  Reloading now
+  // would overwrite in-memory state that's ahead of the DB.
+  if (_ptSaveTimer || _ptSaveInFlight) return;
   const vBefore = ptStateVersion;
   const row = await db.loadPTSession();
   if (!row) return;
-  // If a scan landed while we were awaiting the load, bail out — the
-  // in-memory state is newer than what we just pulled.
-  if (ptStateVersion !== vBefore || _ptSaveTimer) return;
+  // If a scan landed while we were awaiting the load, or a save started,
+  // bail out — the in-memory state is newer than what we just pulled.
+  if (ptStateVersion !== vBefore || _ptSaveTimer || _ptSaveInFlight) return;
   if (row.orders && Object.keys(row.orders).length > 0) {
     pt.orders = row.orders;
 
