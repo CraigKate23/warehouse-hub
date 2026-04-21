@@ -1184,9 +1184,12 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
         ptLoadFromDB();
       });
       db.subscribeLabelMaker(                 () => {
-        // Skip realtime reload if actively scanning/printing — our own saves trigger this
-        // and reloading mid-work overwrites in-memory state that's ahead of the DB
-        if (lmPrintBusy || lm.queue.length > 0 || _lmSaveTimer) return;
+        // Skip realtime reload if actively scanning/printing OR a save is
+        // in-flight — our own saves trigger this callback and reloading
+        // mid-work overwrites in-memory state that's ahead of the DB.
+        // _lmSaveInFlight covers the gap after debounce fires but before
+        // the HTTP write completes.
+        if (lmPrintBusy || lm.queue.length > 0 || _lmSaveTimer || _lmSaveInFlight) return;
         lmLoadFromDB();
       });
     }
@@ -3050,11 +3053,14 @@ function lmReset() {
 }
 
 async function lmLoadFromDB() {
+  // Skip reload if a save is pending or in-flight
+  if (_lmSaveTimer || _lmSaveInFlight) return;
   const vBefore = lmStateVersion;
   const row = await db.loadLabelMaker();
   if (!row) return;
-  // If user scanned/printed while we were fetching, don't overwrite their work
-  if (lmStateVersion !== vBefore || lmPrintBusy) return;
+  // If user scanned/printed while we were fetching, or a save started,
+  // don't overwrite their work
+  if (lmStateVersion !== vBefore || lmPrintBusy || _lmSaveTimer || _lmSaveInFlight) return;
   if (Array.isArray(row.csv_data) && row.csv_data.length) {
     lm.csvData = row.csv_data;
     // Rebuild Progress Tracker orders for any customer not already in PT
@@ -3303,12 +3309,21 @@ document.getElementById('lm-printer-select').addEventListener('change', () => {
 });
 
 /* ---- Debounced DB save: prevents rapid async saves from racing ---- */
+// _lmSaveInFlight stays true from when the HTTP save starts until it
+// completes — same pattern as PT.  This closes the gap where _lmSaveTimer
+// was null (debounce fired) but the write hadn't reached the DB yet.
 let _lmSaveTimer = null;
+let _lmSaveInFlight = false;
 function lmSaveToDB() {
   clearTimeout(_lmSaveTimer);
-  _lmSaveTimer = setTimeout(() => {
-    _lmSaveTimer = null;  // clear before save so realtime guard knows no save is pending
-    db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+  _lmSaveTimer = setTimeout(async () => {
+    _lmSaveTimer = null;
+    _lmSaveInFlight = true;
+    try {
+      await db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
+    } finally {
+      _lmSaveInFlight = false;
+    }
   }, 400);
 }
 
