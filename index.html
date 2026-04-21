@@ -1138,7 +1138,7 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
   // Block render until auth is confirmed
   document.documentElement.style.visibility = 'hidden';
 
-  window._sb.auth.getSession().then(({ data: { session } }) => {
+  window._sb.auth.getSession().then(async ({ data: { session } }) => {
     if (!session) {
       window.location.replace('login.html');
     } else {
@@ -1152,14 +1152,17 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
       // Init shared DB layer
       db.init(window._sb, email);
 
-      // Load all tool data from the database
+      // Load all tool data from the database.
+      // PT MUST finish before LM starts — lmLoadFromDB syncs orders into
+      // PT and saves.  If PT hasn't loaded yet, pt.orders is empty and
+      // the sync would rebuild orders from scratch, wiping pallet progress.
       wmsLoadFromDB();
       invLoadFromDB();
       oscLoadFromDB();
       opPicker.loadFromDB();
       orpkPicker.loadFromDB();
       dsdPicker.loadFromDB();
-      ptLoadFromDB();
+      await ptLoadFromDB();
       lmLoadFromDB();
 
       // Realtime subscriptions — refresh tool state when any team member changes data
@@ -2673,9 +2676,13 @@ function lmApplyParsedData(rows, sourceDesc) {
   const tagged = rows.map(r => ({ ...r, _customer: customer }));
   lm.csvData = [...lm.csvData, ...tagged];
 
-  // Sync to Progress Tracker and save PT to DB so other users see the new orders
-  lmSyncToProgressTracker(tagged, customer);
-  db.savePTSession(pt.orders, []);
+  // Sync to Progress Tracker and save PT to DB so other users see the new orders.
+  // Only sync if PT has loaded — otherwise we'd save empty/partial pt.orders and
+  // wipe existing pallet progress.
+  if (_ptInitialLoadDone) {
+    lmSyncToProgressTracker(tagged, customer);
+    db.savePTSession(pt.orders, []);
+  }
 
   lm.scanMode = lmConsignees[customer].scanMode;
   document.getElementById('lm-scan-label').textContent = `Scan ${lmConsignees[customer].scanField} Barcode`;
@@ -3053,7 +3060,12 @@ async function lmLoadFromDB() {
     // Rebuild Progress Tracker orders for any customer not already in PT
     // (PT loads its own state from DB; only sync customers whose orders are missing)
     // Skip re-sync if PT was explicitly cleared by the user this session
-    if (!pt._cleared) {
+    // Only sync LM → PT if PT has completed its own initial load.
+    // On page load, ptLoadFromDB() and lmLoadFromDB() race each other.
+    // If LM wins, pt.orders is still {} — the sync would rebuild every
+    // order from scratch (zero pallets, zero pulled) and save to DB,
+    // WIPING all existing pallet progress for the whole team.
+    if (!pt._cleared && _ptInitialLoadDone) {
       const customers = [...new Set(lm.csvData.map(r => r._customer).filter(Boolean))];
       const ptCustomers = new Set(Object.values(pt.orders).map(o => o._customer).filter(Boolean));
       let ptChanged = false;
@@ -3529,6 +3541,13 @@ function lmPrintAll() {
    MODULE: PROGRESS TRACKER
    ================================================================ */
 const pt = { orders: {}, selectedOrder: null, selectedPallet: 0, _cleared: false };
+
+// Guard: true once ptLoadFromDB has completed at least once.  Until then,
+// pt.orders is empty ({}) and any code that creates fresh orders from LM
+// data and saves them would OVERWRITE the real PT session in the DB,
+// wiping all pallet progress.  Every save path outside PT itself must
+// check this flag before calling db.savePTSession.
+let _ptInitialLoadDone = false;
 
 // Debounced save + state version guard. Protects against a race where
 // our own savePTSession triggers the realtime subscription, which reloads
@@ -4061,10 +4080,11 @@ async function ptLoadFromDB() {
   if (_ptSaveTimer || _ptSaveInFlight) return;
   const vBefore = ptStateVersion;
   const row = await db.loadPTSession();
-  if (!row) return;
+  if (!row) { _ptInitialLoadDone = true; return; }
   // If a scan landed while we were awaiting the load, or a save started,
   // bail out — the in-memory state is newer than what we just pulled.
   if (ptStateVersion !== vBefore || _ptSaveTimer || _ptSaveInFlight) return;
+  _ptInitialLoadDone = true;
   if (row.orders && Object.keys(row.orders).length > 0) {
     pt.orders = row.orders;
 
