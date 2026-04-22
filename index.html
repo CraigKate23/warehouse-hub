@@ -3076,6 +3076,8 @@ async function lmLoadFromDB() {
       const ptCustomers = new Set(Object.values(pt.orders).map(o => o._customer).filter(Boolean));
       let ptChanged = false;
       customers.forEach(customer => {
+        // Skip customers that were explicitly cleared this session
+        if (pt._clearedCustomers.has(customer)) return;
         if (!ptCustomers.has(customer)) {
           const rows = lm.csvData.filter(r => r._customer === customer);
           lmSyncToProgressTracker(rows, customer);
@@ -3561,7 +3563,7 @@ function lmPrintAll() {
 /* ================================================================
    MODULE: PROGRESS TRACKER
    ================================================================ */
-const pt = { orders: {}, selectedOrder: null, selectedPallet: 0, _cleared: false };
+const pt = { orders: {}, selectedOrder: null, selectedPallet: 0, _cleared: false, _clearedCustomers: new Set() };
 
 // Guard: true once ptLoadFromDB has completed at least once.  Until then,
 // pt.orders is empty ({}) and any code that creates fresh orders from LM
@@ -4049,6 +4051,7 @@ async function ptClearCustomer(customer) {
   const orderIds = customerOrders.map(o => o.id);
 
   orderIds.forEach(id => delete pt.orders[id]);
+  pt._clearedCustomers.add(customer);  // prevent LM→PT re-sync from resurrecting these orders
 
   // Remove ALL data for this customer from Label Maker
   lm.csvData = lm.csvData.filter(r => r._customer !== customer);
