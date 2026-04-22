@@ -3107,7 +3107,7 @@ function lmBuildZPL(item) {
   const dateStr = `${String(today.getMonth()+1).padStart(2,'0')}/${String(today.getDate()).padStart(2,'0')}/${today.getFullYear()}`;
   const dcNum = customer === 'autozone' ? String(item.orderNo || '').substring(0, 2) : (item.dc || '');
 
-  const isAZ = customer === 'autozone';
+  const isAZ = customer === 'autozone' || customer === 'oreilly';
   return `^XA
 ^PW812
 ^LL1218
@@ -3214,10 +3214,10 @@ function lmBuildLabelHTML(item) {
       </div>
       <hr style="border:1px solid #000;margin:5px 0">
       <div style="font-size:13pt;font-weight:700;margin-bottom:2px">Order No: ${item.orderNo}</div>
-      <svg class="lm-bc${customer === 'autozone' ? ' lm-bc-sm' : ''}" data-value="${item.orderNo}"></svg>
+      <svg class="lm-bc${customer === 'autozone' || customer === 'oreilly' ? ' lm-bc-sm' : ''}" data-value="${item.orderNo}"></svg>
       <div style="font-size:13pt;font-weight:700;margin-top:4px;margin-bottom:2px">UPC: ${item.upc}</div>
-      <svg class="lm-bc${customer === 'autozone' ? ' lm-bc-sm' : ''}" data-value="${item.upc}"></svg>
-      <div style="font-size:${customer === 'autozone' ? '22pt' : '13pt'};font-weight:${customer === 'autozone' ? '900' : '700'};margin-top:4px;margin-bottom:2px">Mat: ${item.mat}</div>
+      <svg class="lm-bc${customer === 'autozone' || customer === 'oreilly' ? ' lm-bc-sm' : ''}" data-value="${item.upc}"></svg>
+      <div style="font-size:${customer === 'autozone' || customer === 'oreilly' ? '22pt' : '13pt'};font-weight:${customer === 'autozone' || customer === 'oreilly' ? '900' : '700'};margin-top:4px;margin-bottom:2px">Mat: ${item.mat}</div>
       <svg class="lm-bc" data-value="${item.mat}"></svg>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
         <div>
