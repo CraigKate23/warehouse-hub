@@ -3133,7 +3133,7 @@ function lmBuildZPL(item) {
 ^CF0,50
 ^FO50,${isAZ ? '760' : '790'}^FDQty: ${item.qty}^FS
 ^FO50,${isAZ ? '810' : '840'}^BY4^BCN,100,N,N,N^FD${item.qty}^FS
-${isAZ ? `^A0N,200,200\n^FO500,770^FD${dcNum}^FS` : ''}
+${customer === 'autozone' ? `^A0N,200,200\n^FO500,770^FD${dcNum}^FS` : ''}
 ^FO50,970^GB712,3,3^FS
 ${customer === 'autozone' && item.dc ? `^A0N,140,140\n^FO50,1000^FD${item.dc}^FS` : ''}
 ${customer === 'oreilly' && dcNum ? `^A0N,140,140\n^FO50,1000^FD${dcNum}^FS` : ''}
