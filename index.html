@@ -3107,6 +3107,7 @@ function lmBuildZPL(item) {
   const dateStr = `${String(today.getMonth()+1).padStart(2,'0')}/${String(today.getDate()).padStart(2,'0')}/${today.getFullYear()}`;
   const dcNum = customer === 'autozone' ? String(item.orderNo || '').substring(0, 2) : (item.dc || '');
 
+  const isAZ = customer === 'autozone';
   return `^XA
 ^PW812
 ^LL1218
@@ -3121,17 +3122,18 @@ function lmBuildZPL(item) {
 ^FO50,200^GB712,3,3^FS
 ^CF0,50
 ^FO50,250^FDOrder No: ${item.orderNo}^FS
-^FO50,300^BY4^BCN,100,N,N,N^FD${item.orderNo}^FS
+^FO50,300^BY4^BCN,${isAZ ? '65' : '100'},N,N,N^FD${item.orderNo}^FS
 ^CF0,50
-^FO50,430^FDUPC: ${item.upc}^FS
-^FO50,480^BY4^BCN,100,N,N,N^FD${item.upc}^FS
+^FO50,${isAZ ? '395' : '430'}^FDUPC: ${item.upc}^FS
+^FO50,${isAZ ? '445' : '480'}^BY4^BCN,${isAZ ? '65' : '100'},N,N,N^FD${item.upc}^FS
+^CF0,${isAZ ? '80' : '50'}
+^FO50,${isAZ ? '540' : '610'}^FDMat: ${item.mat}^FS
 ^CF0,50
-^FO50,610^FDMat: ${item.mat}^FS
-^FO50,660^BY5^BCN,100,N,N,N^FD${item.mat}^FS
+^FO50,${isAZ ? '630' : '660'}^BY5^BCN,100,N,N,N^FD${item.mat}^FS
 ^CF0,50
-^FO50,790^FDQty: ${item.qty}^FS
-^FO50,840^BY4^BCN,100,N,N,N^FD${item.qty}^FS
-${customer === 'autozone' ? `^A0N,200,200\n^FO500,800^FD${dcNum}^FS` : ''}
+^FO50,${isAZ ? '760' : '790'}^FDQty: ${item.qty}^FS
+^FO50,${isAZ ? '810' : '840'}^BY4^BCN,100,N,N,N^FD${item.qty}^FS
+${isAZ ? `^A0N,200,200\n^FO500,770^FD${dcNum}^FS` : ''}
 ^FO50,970^GB712,3,3^FS
 ${customer === 'autozone' && item.dc ? `^A0N,140,140\n^FO50,1000^FD${item.dc}^FS` : ''}
 ${customer === 'oreilly' && dcNum ? `^A0N,140,140\n^FO50,1000^FD${dcNum}^FS` : ''}
@@ -3212,10 +3214,10 @@ function lmBuildLabelHTML(item) {
       </div>
       <hr style="border:1px solid #000;margin:5px 0">
       <div style="font-size:13pt;font-weight:700;margin-bottom:2px">Order No: ${item.orderNo}</div>
-      <svg class="lm-bc" data-value="${item.orderNo}"></svg>
-      <div style="font-size:13pt;font-weight:700;margin-top:6px;margin-bottom:2px">UPC: ${item.upc}</div>
-      <svg class="lm-bc" data-value="${item.upc}"></svg>
-      <div style="font-size:13pt;font-weight:700;margin-top:6px;margin-bottom:2px">Mat: ${item.mat}</div>
+      <svg class="lm-bc${customer === 'autozone' ? ' lm-bc-sm' : ''}" data-value="${item.orderNo}"></svg>
+      <div style="font-size:13pt;font-weight:700;margin-top:4px;margin-bottom:2px">UPC: ${item.upc}</div>
+      <svg class="lm-bc${customer === 'autozone' ? ' lm-bc-sm' : ''}" data-value="${item.upc}"></svg>
+      <div style="font-size:${customer === 'autozone' ? '22pt' : '13pt'};font-weight:${customer === 'autozone' ? '900' : '700'};margin-top:4px;margin-bottom:2px">Mat: ${item.mat}</div>
       <svg class="lm-bc" data-value="${item.mat}"></svg>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
         <div>
@@ -3234,12 +3236,13 @@ function lmBuildLabelHTML(item) {
 function lmRenderBarcodes(container) {
   container.querySelectorAll('svg.lm-bc').forEach(svg => {
     const val = svg.dataset.value;
+    const h = svg.classList.contains('lm-bc-sm') ? 30 : 45;
     if (val) {
       try {
-        JsBarcode(svg, val, { format: 'CODE128', width: 2, height: 45, displayValue: false, margin: 0 });
+        JsBarcode(svg, val, { format: 'CODE128', width: 2, height: h, displayValue: false, margin: 0 });
       } catch(e) {
         // Fallback for invalid barcode values
-        JsBarcode(svg, val, { format: 'CODE128', width: 2, height: 45, displayValue: false, margin: 0, valid: () => true });
+        JsBarcode(svg, val, { format: 'CODE128', width: 2, height: h, displayValue: false, margin: 0, valid: () => true });
       }
     }
   });
