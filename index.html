@@ -3132,8 +3132,8 @@ function lmBuildZPL(item) {
 ^FO50,790^FDQty: ${item.qty}^FS
 ^FO50,840^BY4^BCN,100,N,N,N^FD${item.qty}^FS
 ${customer === 'autozone' ? `^A0N,200,200\n^FO500,800^FD${dcNum}^FS` : ''}
-${customer === 'autozone' && item.dc ? `^CF0,40\n^FO50,950^FDDC: ${item.dc}^FS` : ''}
-^FO50,${customer === 'autozone' && item.dc ? '1000' : '970'}^GB712,3,3^FS
+^FO50,970^GB712,3,3^FS
+${customer === 'autozone' && item.dc ? `^A0N,140,140\n^FO50,1000^FDDC: ${item.dc}^FS` : ''}
 ${customer === 'oreilly' && dcNum ? `^A0N,140,140\n^FO50,1000^FD${dcNum}^FS` : ''}
 ${customer === 'ai' ? `^A0N,140,140\n^FO50,1000^FD${item.mat}^FS` : ''}
 ^XZ`;
@@ -3170,7 +3170,7 @@ function lmUpdatePreview(item) {
       <div><span style="font-size:16px;font-weight:700">Qty: ${data.qty}</span><br><code style="letter-spacing:2px">||||| ${data.qty} |||||</code></div>
       ${customer === 'autozone' && dcNum ? `<span style="font-size:56px;font-weight:900">${dcNum}</span>` : ''}
     </div>
-    ${customer === 'autozone' && data.dc ? `<div style="margin-top:6px;font-size:16px;font-weight:700">DC: ${data.dc}</div>` : ''}
+    ${customer === 'autozone' && data.dc ? `<div style="border-top:2px solid #000;padding-top:8px;margin-top:10px;text-align:center;font-size:36px;font-weight:900">DC: ${data.dc}</div>` : ''}
     ${customer === 'oreilly' && dcNum ? `<div style="border-top:2px solid #000;padding-top:8px;margin-top:10px;text-align:center;font-size:36px;font-weight:900">${dcNum}</div>` : ''}
     ${customer === 'ai' ? `<div style="border-top:2px solid #000;padding-top:8px;margin-top:10px;text-align:center;font-size:36px;font-weight:900">${data.mat}</div>` : ''}
   `;
@@ -3224,8 +3224,8 @@ function lmBuildLabelHTML(item) {
         </div>
         ${customer === 'autozone' && dcNum ? `<div style="font-size:64pt;font-weight:900;line-height:1">${dcNum}</div>` : ''}
       </div>
-      ${customer === 'autozone' && item.dc ? `<div style="font-size:13pt;font-weight:700;margin-top:4px">DC: ${item.dc}</div>` : ''}
       <hr style="border:1px solid #000;margin:5px 0">
+      ${customer === 'autozone' && item.dc ? `<div style="text-align:center;font-size:36pt;font-weight:900;line-height:1.1">DC: ${item.dc}</div>` : ''}
       ${customer === 'oreilly' && dcNum ? `<div style="text-align:center;font-size:36pt;font-weight:900;line-height:1.1">${dcNum}</div>` : ''}
       ${customer === 'ai' ? `<div style="text-align:center;font-size:36pt;font-weight:900;line-height:1.1">${item.mat}</div>` : ''}
     </div>`;
