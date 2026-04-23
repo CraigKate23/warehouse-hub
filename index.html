@@ -3072,19 +3072,25 @@ async function lmLoadFromDB() {
     // order from scratch (zero pallets, zero pulled) and save to DB,
     // WIPING all existing pallet progress for the whole team.
     if (!pt._cleared && _ptInitialLoadDone) {
-      const customers = [...new Set(lm.csvData.map(r => r._customer).filter(Boolean))];
-      const ptCustomers = new Set(Object.values(pt.orders).map(o => o._customer).filter(Boolean));
+      // Sync at the ORDER level, not customer level — ensures individual
+      // orders that were missed (e.g. uploaded before PT finished loading)
+      // get added even when other orders for the same customer already exist.
+      const ptOrderIds = new Set(Object.keys(pt.orders));
       let ptChanged = false;
-      customers.forEach(customer => {
-        // Skip customers that were explicitly cleared this session
-        if (pt._clearedCustomers.has(customer)) return;
-        if (!ptCustomers.has(customer)) {
-          const rows = lm.csvData.filter(r => r._customer === customer);
-          lmSyncToProgressTracker(rows, customer);
-          ptChanged = true;
-        }
+      const byOrder = {};
+      lm.csvData.forEach(r => {
+        if (!r._customer) return;
+        if (pt._clearedCustomers.has(r._customer)) return;
+        const orderId = (r._customer === 'oreilly' && r.dc) ? r.dc : (r.orderNo || 'Unknown');
+        if (ptOrderIds.has(orderId)) return;
+        if (!byOrder[orderId]) byOrder[orderId] = { customer: r._customer, rows: [] };
+        byOrder[orderId].rows.push(r);
       });
-      // Only save PT if we actually added new customer orders.  Saving
+      Object.values(byOrder).forEach(({ customer, rows }) => {
+        lmSyncToProgressTracker(rows, customer);
+        ptChanged = true;
+      });
+      // Only save PT if we actually added new orders.  Saving
       // unconditionally was dangerous: if pt.orders held stale data
       // (from a concurrent realtime reload) the save would persist it,
       // permanently losing scans.
