@@ -3090,11 +3090,11 @@ async function lmLoadFromDB() {
         lmSyncToProgressTracker(rows, customer);
         ptChanged = true;
       });
-      // Only save PT if we actually added new orders.  Saving
-      // unconditionally was dangerous: if pt.orders held stale data
-      // (from a concurrent realtime reload) the save would persist it,
-      // permanently losing scans.
-      if (ptChanged && Object.keys(pt.orders).length > 0) db.savePTSession(pt.orders, []);
+      // Only save to DB if we added new orders AND the DB was genuinely empty
+      // (not just empty because of a failed load or stale data).  If PT
+      // already had orders in the DB, re-synced orders are fresh shells
+      // (zero pallets/pulled) and saving would wipe real progress.
+      if (ptChanged && _ptLoadedEmpty && Object.keys(pt.orders).length > 0) db.savePTSession(pt.orders, []);
     }
     // Show UI cards since data is present
     document.getElementById('lm-scan-card').style.display = 'block';
@@ -3577,6 +3577,7 @@ const pt = { orders: {}, selectedOrder: null, selectedPallet: 0, _cleared: false
 // wiping all pallet progress.  Every save path outside PT itself must
 // check this flag before calling db.savePTSession.
 let _ptInitialLoadDone = false;
+let _ptLoadedEmpty = false;  // true when DB had no PT orders — safe to create fresh ones
 
 // Debounced save + state version guard. Protects against a race where
 // our own savePTSession triggers the realtime subscription, which reloads
@@ -4110,12 +4111,13 @@ async function ptLoadFromDB() {
   if (_ptSaveTimer || _ptSaveInFlight) return;
   const vBefore = ptStateVersion;
   const row = await db.loadPTSession();
-  if (!row) { _ptInitialLoadDone = true; return; }
+  if (!row) { _ptInitialLoadDone = true; _ptLoadedEmpty = true; return; }
   // If a scan landed while we were awaiting the load, or a save started,
   // bail out — the in-memory state is newer than what we just pulled.
   if (ptStateVersion !== vBefore || _ptSaveTimer || _ptSaveInFlight) return;
   _ptInitialLoadDone = true;
   if (row.orders && Object.keys(row.orders).length > 0) {
+    _ptLoadedEmpty = false;
     pt.orders = row.orders;
 
     // Consolidate duplicate part numbers within each order (fixes legacy data)
@@ -4180,6 +4182,8 @@ async function ptLoadFromDB() {
     ptRenderOrders();
     ptRefreshLivePallet();
     dashUpdateStats();
+  } else {
+    _ptLoadedEmpty = true;
   }
 }
 
