@@ -206,8 +206,27 @@ const db = {
 
   async saveLabelMaker(csvData, queue, printed) {
     if (!this._sb) return;
+    // ── Read-merge-write for printed array ──────────────────────
+    // Another user may have printed items since our last load.
+    // Fetch the current DB printed array and merge (union by packingNo)
+    // so we never overwrite someone else's printed records.
+    let mergedPrinted = printed || [];
+    try {
+      const { data: current } = await this._sb
+        .from('label_maker')
+        .select('printed')
+        .eq('id', 1)
+        .maybeSingle();
+      if (current && Array.isArray(current.printed) && current.printed.length) {
+        const localKeys = new Set(mergedPrinted.map(r => `${r._customer||''}:${r.packingNo||''}`));
+        const newFromDB = current.printed.filter(r => !localKeys.has(`${r._customer||''}:${r.packingNo||''}`));
+        if (newFromDB.length) mergedPrinted = [...mergedPrinted, ...newFromDB];
+      }
+    } catch (e) {
+      console.warn('saveLabelMaker merge-read failed, saving local state:', e);
+    }
     const { error } = await this._sb.from('label_maker').upsert(
-      { id: 1, csv_data: csvData, queue, printed: printed || [], uploaded_by: this._email, updated_at: new Date().toISOString() },
+      { id: 1, csv_data: csvData, queue, printed: mergedPrinted, uploaded_by: this._email, updated_at: new Date().toISOString() },
       { onConflict: 'id' }
     );
     if (error) console.error('saveLabelMaker:', error);

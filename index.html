@@ -1184,12 +1184,16 @@ input[type="checkbox"]:checked + .toggle-track::after { transform: translateX(18
         ptLoadFromDB();
       });
       db.subscribeLabelMaker(                 () => {
-        // Skip realtime reload if actively scanning/printing OR a save is
+        // Skip realtime reload if actively printing OR a save is
         // in-flight — our own saves trigger this callback and reloading
         // mid-work overwrites in-memory state that's ahead of the DB.
         // _lmSaveInFlight covers the gap after debounce fires but before
         // the HTTP write completes.
-        if (lmPrintBusy || lm.queue.length > 0 || _lmSaveTimer || _lmSaveInFlight) return;
+        // NOTE: we no longer block on lm.queue.length > 0 — lmLoadFromDB
+        // now MERGES printed/queue arrays instead of replacing them, so
+        // reloading while items are queued is safe and ensures we pick up
+        // other users' prints promptly.
+        if (lmPrintBusy || _lmSaveTimer || _lmSaveInFlight) return;
         lmLoadFromDB();
       });
     }
@@ -2594,7 +2598,7 @@ function paypaDownloadCSV() {
 /* ================================================================
    MODULE: LABEL MAKER (AutoZone / A&I / O'Reilly)
    ================================================================ */
-const lm = { csvData: [], queue: [], printed: [], scanMode: 'mat', printers: [{ name: 'Default (USB)' }] };
+const lm = { csvData: [], queue: [], printed: [], scanMode: 'mat', printers: [{ name: 'Default (USB)' }], _clearedCustomers: new Set() };
 
 const lmConsignees = {
   autozone: { name: 'Auto Zone Parts, Inc - Memphis, USA', scanField: 'Mat', scanMode: 'mat' },
@@ -3028,6 +3032,7 @@ function lmClearQueue() {
   const customer = document.getElementById('lm-customer').value;
   lm.queue = lm.queue.filter(r => r._customer !== customer);
   lm.printed = lm.printed.filter(r => r._customer !== customer);
+  lm._clearedCustomers.add(customer);  // prevent merge from resurrecting cleared items
   lmRefreshQueue();
   db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
 }
@@ -3037,6 +3042,7 @@ function lmReset() {
   lm.csvData = lm.csvData.filter(r => r._customer !== customer);
   lm.queue   = lm.queue.filter(r => r._customer !== customer);
   lm.printed = lm.printed.filter(r => r._customer !== customer);
+  lm._clearedCustomers.add(customer);  // prevent merge from resurrecting cleared items
   document.getElementById('lm-file').value = '';
   document.getElementById('lm-fname').textContent = '';
   document.getElementById('lm-dropzone').classList.remove('loaded');
@@ -3102,8 +3108,40 @@ async function lmLoadFromDB() {
     document.getElementById('lm-unfound-btn').style.display = 'inline-flex';
     document.getElementById('lm-stats-bar').style.display = '';
   }
-  if (Array.isArray(row.queue)) lm.queue = row.queue;
-  if (Array.isArray(row.printed)) lm.printed = row.printed;
+  // ── MERGE printed arrays (union by packingNo) ──────────────────
+  // Another user may have printed items we don't know about.  Instead
+  // of blindly replacing our local printed list (which drops records
+  // from OTHER users who saved before us), we merge: keep everything
+  // local, and add anything from the DB we don't already have.
+  // Skip items whose customer was explicitly cleared/reset this session.
+  if (Array.isArray(row.printed)) {
+    const localKeys = new Set(lm.printed.map(r => `${r._customer||''}:${r.packingNo||''}`));
+    const newFromDB = row.printed.filter(r =>
+      !localKeys.has(`${r._customer||''}:${r.packingNo||''}`) &&
+      !lm._clearedCustomers.has(r._customer)
+    );
+    if (newFromDB.length) lm.printed = [...lm.printed, ...newFromDB];
+  }
+
+  // ── MERGE queue ───────────────────────────────────────────────
+  // Keep local queue items.  Add DB-only items we don't have.
+  // Remove any queue items that are already in printed (another
+  // user printed them while we were working).
+  // Skip items whose customer was explicitly cleared/reset this session.
+  if (Array.isArray(row.queue)) {
+    const printedKeys = new Set(lm.printed.map(r => `${r._customer||''}:${r.packingNo||''}`));
+    // Drop local queue items another user already printed
+    lm.queue = lm.queue.filter(r => !printedKeys.has(`${r._customer||''}:${r.packingNo||''}`));
+    // Add new queue items from DB that we don't have locally
+    const localQueueKeys = new Set(lm.queue.map(r => `${r._customer||''}:${r.packingNo||''}`));
+    const newQueueFromDB = row.queue.filter(r =>
+      !localQueueKeys.has(`${r._customer||''}:${r.packingNo||''}`) &&
+      !printedKeys.has(`${r._customer||''}:${r.packingNo||''}`) &&
+      !lm._clearedCustomers.has(r._customer)
+    );
+    if (newQueueFromDB.length) lm.queue = [...lm.queue, ...newQueueFromDB];
+  }
+
   lmRefreshQueue();
   lmUpdateStats();
 }
@@ -3500,9 +3538,11 @@ function lmFindInQueue(item) {
   let idx = lm.queue.indexOf(item);  // fast path: same reference
   if (idx === -1) {
     // Fallback: match by fields (needed after lmLoadFromDB replaces arrays)
+    // Include dc so O'Reilly items for different DCs aren't confused
     idx = lm.queue.findIndex(q =>
       q._customer === item._customer && q.orderNo === item.orderNo &&
-      q.upc === item.upc && q.mat === item.mat && q.packingNo === item.packingNo
+      q.upc === item.upc && q.mat === item.mat && q.packingNo === item.packingNo &&
+      (q.dc || '') === (item.dc || '')
     );
   }
   return idx;
@@ -4064,6 +4104,7 @@ async function ptClearCustomer(customer) {
   lm.csvData = lm.csvData.filter(r => r._customer !== customer);
   lm.queue   = lm.queue.filter(r => r._customer !== customer);
   lm.printed = lm.printed.filter(r => r._customer !== customer);
+  lm._clearedCustomers.add(customer);  // prevent merge from resurrecting cleared items
   lmRefreshQueue();
   db.saveLabelMaker(lm.csvData, lm.queue, lm.printed);
 
